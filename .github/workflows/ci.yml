@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test
+      - name: Test with Jolt asserts
+        run: cargo test -p jolt --features asserts
+
+  asan:
+    name: AddressSanitizer
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: ./scripts/test-asan.sh
+
+  c-api:
+    name: C API (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      # Jolt's default -Wall -Werror also applies to joltc here
+      - run: >
+          cmake -S jolt-sys/joltc -B build -DCMAKE_BUILD_TYPE=Release -DJOLTC_BUILD_EXAMPLES=ON
+          -DJPH_USE_DX12=OFF -DJPH_USE_VK=OFF -DJPH_USE_MTL=OFF -DJPH_USE_CPU_COMPUTE=OFF
+          -DINTERPROCEDURAL_OPTIMIZATION=OFF -DUSE_ASSERTS=ON
+      - run: cmake --build build --target joltc_hello_world --parallel
+      - run: ./build/joltc_hello_world
