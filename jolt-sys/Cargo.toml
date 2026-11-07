@@ -1,0 +1,29 @@
+[package]
+name = "jolt-sys"
+description = "Raw FFI bindings to Jolt Physics through the joltc C API"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+links = "jolt"
+build = "build.rs"
+include = [
+    "/build.rs",
+    "/src/**",
+    "/joltc/**",
+    "/JoltPhysics/LICENSE",
+    "/JoltPhysics/Build/CMakeLists.txt",
+    "/JoltPhysics/Jolt/**",
+]
+
+[features]
+# Compile Jolt with JPH_ENABLE_ASSERTS.
+asserts = []
+# Make simulation results identical across platforms and compilers (slower).
+cross-platform-deterministic = []
+# Regenerate the bindings with bindgen (needs libclang). Set JOLT_SYS_UPDATE_BINDINGS=1 to write them to src/bindings.rs.
+bindgen = ["dep:bindgen"]
+
+[build-dependencies]
+cmake = "0.1.58"
+bindgen = { version = "0.73", optional = true }

@@ -1,0 +1,13 @@
+[workspace]
+resolver = "3"
+members = ["jolt-sys", "jolt"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/Orrin-Team/jolt-rs"
+
+# Jolt is always compiled with optimisations (see jolt-sys/build.rs); this keeps the Rust side usable in tests too.
+[profile.dev.package.jolt-sys]
+opt-level = 1

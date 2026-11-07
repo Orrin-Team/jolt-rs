@@ -1,0 +1,16 @@
+[package]
+name = "jolt"
+description = "Safe Rust bindings to Jolt Physics"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+jolt-sys = { path = "../jolt-sys", version = "0.1.0" }
+glam = { version = "0.34", optional = true }
+
+[features]
+asserts = ["jolt-sys/asserts"]
+cross-platform-deterministic = ["jolt-sys/cross-platform-deterministic"]
+glam = ["dep:glam"]
