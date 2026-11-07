@@ -198,6 +198,24 @@ typedef enum JPC_PathRotationConstraintType {
     JPC_PATH_ROTATION_FULLY_CONSTRAINED = 5,
 } JPC_PathRotationConstraintType;
 
+typedef enum JPC_ConstraintType {
+    JPC_CONSTRAINT_TYPE_NONE = 0,
+    JPC_CONSTRAINT_TYPE_FIXED = 1,
+    JPC_CONSTRAINT_TYPE_POINT = 2,
+    JPC_CONSTRAINT_TYPE_DISTANCE = 3,
+    JPC_CONSTRAINT_TYPE_HINGE = 4,
+    JPC_CONSTRAINT_TYPE_SLIDER = 5,
+    JPC_CONSTRAINT_TYPE_CONE = 6,
+    JPC_CONSTRAINT_TYPE_SWING_TWIST = 7,
+    JPC_CONSTRAINT_TYPE_SIX_DOF = 8,
+    JPC_CONSTRAINT_TYPE_GEAR = 9,
+    JPC_CONSTRAINT_TYPE_RACK_AND_PINION = 10,
+    JPC_CONSTRAINT_TYPE_PULLEY = 11,
+    JPC_CONSTRAINT_TYPE_PATH = 12,
+    JPC_CONSTRAINT_TYPE_VEHICLE = 13,
+    JPC_CONSTRAINT_TYPE_OTHER = 14,
+} JPC_ConstraintType;
+
 typedef enum JPC_TransmissionMode {
     JPC_TRANSMISSION_MODE_AUTO = 0,
     JPC_TRANSMISSION_MODE_MANUAL = 1,
@@ -237,6 +255,9 @@ typedef struct JPC_Character JPC_Character;
 typedef struct JPC_PhysicsSnapshot JPC_PhysicsSnapshot;
 typedef struct JPC_PathConstraintPath JPC_PathConstraintPath;
 typedef struct JPC_VehicleCollisionTester JPC_VehicleCollisionTester;
+typedef struct JPC_Skeleton JPC_Skeleton;
+typedef struct JPC_RagdollSettings JPC_RagdollSettings;
+typedef struct JPC_Ragdoll JPC_Ragdoll;
 
 /* ------------------------------------------------------------------------- */
 /* Global setup                                                               */
@@ -1078,6 +1099,7 @@ JPC_API JPC_Constraint *JPC_PhysicsSystem_CreateConeConstraint(JPC_PhysicsSystem
 /* Wakes both bodies so a newly added or modified constraint takes effect. */
 JPC_API void JPC_BodyInterface_ActivateConstraint(JPC_BodyInterface *bi, const JPC_Constraint *constraint);
 
+JPC_API JPC_ConstraintType JPC_Constraint_GetType(const JPC_Constraint *constraint);
 JPC_API void JPC_Constraint_AddRef(const JPC_Constraint *constraint);
 JPC_API void JPC_Constraint_Release(const JPC_Constraint *constraint);
 JPC_API bool JPC_Constraint_GetEnabled(const JPC_Constraint *constraint);
@@ -1290,6 +1312,120 @@ JPC_API void JPC_Vehicle_SetNumStepsBetweenCollisionTests(JPC_Constraint *vehicl
 JPC_API void JPC_Vehicle_OverrideGravity(JPC_Constraint *vehicle, JPC_Vec3 gravity);
 JPC_API void JPC_Vehicle_ResetGravityOverride(JPC_Constraint *vehicle);
 JPC_API JPC_BodyID JPC_Vehicle_GetBody(const JPC_Constraint *vehicle);
+
+/* ------------------------------------------------------------------------- */
+/* Skeletons and ragdolls                                                     */
+/* ------------------------------------------------------------------------- */
+
+/* A joint hierarchy. Joints must be added parent first. Reference counted; build it completely before
+ * handing it to ragdoll settings. */
+JPC_API JPC_Skeleton *JPC_Skeleton_Create(void);
+/* parent_index is -1 for a root. Returns the new joint's index, or -1 if parent_index is not an existing joint. */
+JPC_API int32_t JPC_Skeleton_AddJoint(JPC_Skeleton *skeleton, const char *name, int32_t parent_index);
+JPC_API uint32_t JPC_Skeleton_GetJointCount(const JPC_Skeleton *skeleton);
+/* -1 if no joint has this name. */
+JPC_API int32_t JPC_Skeleton_GetJointIndex(const JPC_Skeleton *skeleton, const char *name);
+/* NUL terminated; valid as long as the skeleton. NULL for an out of range joint. */
+JPC_API const char *JPC_Skeleton_GetJointName(const JPC_Skeleton *skeleton, uint32_t joint);
+JPC_API int32_t JPC_Skeleton_GetParentIndex(const JPC_Skeleton *skeleton, uint32_t joint);
+JPC_API void JPC_Skeleton_AddRef(const JPC_Skeleton *skeleton);
+JPC_API void JPC_Skeleton_Release(const JPC_Skeleton *skeleton);
+
+/* Local joint transforms (relative to the parent joint, or the model for roots). */
+typedef struct JPC_JointState {
+    JPC_Vec3 translation;
+    JPC_Quat rotation;
+} JPC_JointState;
+
+/* Converts joint_count local states to model space matrices, and back. */
+JPC_API void JPC_Skeleton_CalculateJointMatrices(const JPC_Skeleton *skeleton, const JPC_JointState *states, JPC_Mat44 *out_matrices);
+JPC_API void JPC_Skeleton_CalculateJointStates(const JPC_Skeleton *skeleton, const JPC_Mat44 *matrices, JPC_JointState *out_states);
+
+/* Settings for one of the supported joint types, selected by type. */
+typedef struct JPC_TwoBodyConstraintSettings {
+    JPC_ConstraintType type;
+    union {
+        JPC_FixedConstraintSettings fixed;
+        JPC_PointConstraintSettings point;
+        JPC_DistanceConstraintSettings distance;
+        JPC_HingeConstraintSettings hinge;
+        JPC_SliderConstraintSettings slider;
+        JPC_ConeConstraintSettings cone;
+        JPC_SwingTwistConstraintSettings swing_twist;
+        JPC_SixDOFConstraintSettings six_dof;
+    } settings;
+} JPC_TwoBodyConstraintSettings;
+
+typedef struct JPC_RagdollPart {
+    JPC_BodyCreationSettings body;
+    /* Joint to the parent part; type NONE for root parts (and only for them, or the part floats free). */
+    JPC_TwoBodyConstraintSettings to_parent;
+} JPC_RagdollPart;
+
+typedef struct JPC_RagdollConstraint {
+    uint32_t body1;
+    uint32_t body2;
+    JPC_TwoBodyConstraintSettings constraint;
+} JPC_RagdollConstraint;
+
+typedef struct JPC_RagdollSettingsDesc {
+    const JPC_Skeleton *skeleton;
+    /* One per joint, in joint order. */
+    const JPC_RagdollPart *parts;
+    uint32_t num_parts;
+    /* Extra constraints between any two parts (e.g. to close a loop). */
+    const JPC_RagdollConstraint *additional_constraints;
+    uint32_t num_additional_constraints;
+    /* Limit mass ratios between parents and children so the joints don't jitter. */
+    bool stabilize;
+    /* Stop parents and children colliding (and parts closer than min_separation_distance in the pose below). */
+    bool disable_parent_child_collisions;
+    /* Optional num_parts model space matrices for the separation test. */
+    const JPC_Mat44 *pose_matrices;
+    float min_separation_distance;
+    /* Give joints near the root a higher priority. */
+    bool calculate_constraint_priorities;
+    uint32_t base_priority;
+} JPC_RagdollSettingsDesc;
+
+/* Immutable and reference counted; one settings object can create many ragdolls. NULL with an error for bad input. */
+JPC_API JPC_RagdollSettings *JPC_RagdollSettings_Create(const JPC_RagdollSettingsDesc *desc);
+JPC_API void JPC_RagdollSettings_AddRef(const JPC_RagdollSettings *settings);
+JPC_API void JPC_RagdollSettings_Release(const JPC_RagdollSettings *settings);
+/* Borrowed. */
+JPC_API const JPC_Skeleton *JPC_RagdollSettings_GetSkeleton(const JPC_RagdollSettings *settings);
+
+/* Creates the bodies and constraints, not yet in the world. Bodies get collision group id group_id.
+ * The bodies belong to the ragdoll: they can't be destroyed through the body interface or used in other constraints. */
+JPC_API JPC_Ragdoll *JPC_RagdollSettings_CreateRagdoll(const JPC_RagdollSettings *settings, JPC_PhysicsSystem *system, uint32_t group_id, uint64_t user_data);
+/* Removes the ragdoll from the world if needed and destroys its bodies and constraints. */
+JPC_API void JPC_Ragdoll_Destroy(JPC_Ragdoll *ragdoll);
+JPC_API void JPC_Ragdoll_AddToPhysicsSystem(JPC_Ragdoll *ragdoll, JPC_Activation activation);
+JPC_API void JPC_Ragdoll_RemoveFromPhysicsSystem(JPC_Ragdoll *ragdoll);
+JPC_API bool JPC_Ragdoll_IsAdded(const JPC_Ragdoll *ragdoll);
+JPC_API void JPC_Ragdoll_Activate(JPC_Ragdoll *ragdoll);
+JPC_API bool JPC_Ragdoll_IsActive(const JPC_Ragdoll *ragdoll);
+JPC_API void JPC_Ragdoll_SetGroupID(JPC_Ragdoll *ragdoll, uint32_t group_id);
+/* matrices holds one model space matrix per joint. */
+JPC_API void JPC_Ragdoll_SetPose(JPC_Ragdoll *ragdoll, JPC_RVec3 root_offset, const JPC_Mat44 *matrices);
+JPC_API void JPC_Ragdoll_GetPose(JPC_Ragdoll *ragdoll, JPC_RVec3 *out_root_offset, JPC_Mat44 *out_matrices);
+/* Moves the bodies towards the pose by setting velocities (for animated, not simulated, ragdolls). */
+JPC_API void JPC_Ragdoll_DriveToPoseUsingKinematics(JPC_Ragdoll *ragdoll, JPC_RVec3 root_offset, const JPC_Mat44 *matrices, float delta_time);
+/* Sets the joint motors (swing-twist and hinge joints) to reach the pose. */
+JPC_API void JPC_Ragdoll_DriveToPoseUsingMotors(JPC_Ragdoll *ragdoll, JPC_RVec3 root_offset, const JPC_Mat44 *matrices);
+JPC_API void JPC_Ragdoll_ResetWarmStart(JPC_Ragdoll *ragdoll);
+JPC_API void JPC_Ragdoll_SetLinearAndAngularVelocity(JPC_Ragdoll *ragdoll, JPC_Vec3 linear, JPC_Vec3 angular);
+JPC_API void JPC_Ragdoll_AddLinearVelocity(JPC_Ragdoll *ragdoll, JPC_Vec3 velocity);
+JPC_API void JPC_Ragdoll_AddImpulse(JPC_Ragdoll *ragdoll, JPC_Vec3 impulse);
+JPC_API void JPC_Ragdoll_GetRootTransform(const JPC_Ragdoll *ragdoll, JPC_RVec3 *out_position, JPC_Quat *out_rotation);
+JPC_API JPC_AABox JPC_Ragdoll_GetWorldSpaceBounds(const JPC_Ragdoll *ragdoll);
+JPC_API uint32_t JPC_Ragdoll_GetBodyCount(const JPC_Ragdoll *ragdoll);
+JPC_API JPC_BodyID JPC_Ragdoll_GetBodyID(const JPC_Ragdoll *ragdoll, uint32_t index);
+JPC_API uint32_t JPC_Ragdoll_GetConstraintCount(const JPC_Ragdoll *ragdoll);
+/* Borrowed; valid as long as the ragdoll. Change it only while no update runs. */
+JPC_API JPC_Constraint *JPC_Ragdoll_GetConstraint(JPC_Ragdoll *ragdoll, uint32_t index);
+/* Borrowed. */
+JPC_API const JPC_RagdollSettings *JPC_Ragdoll_GetSettings(const JPC_Ragdoll *ragdoll);
 
 /* ------------------------------------------------------------------------- */
 /* Characters                                                                 */

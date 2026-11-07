@@ -201,6 +201,22 @@ pub const JPC_PATH_ROTATION_CONSTRAIN_AROUND_BINORMAL: JPC_PathRotationConstrain
 pub const JPC_PATH_ROTATION_CONSTRAIN_TO_PATH: JPC_PathRotationConstraintType = 4;
 pub const JPC_PATH_ROTATION_FULLY_CONSTRAINED: JPC_PathRotationConstraintType = 5;
 pub type JPC_PathRotationConstraintType = ::core::ffi::c_uint;
+pub const JPC_CONSTRAINT_TYPE_NONE: JPC_ConstraintType = 0;
+pub const JPC_CONSTRAINT_TYPE_FIXED: JPC_ConstraintType = 1;
+pub const JPC_CONSTRAINT_TYPE_POINT: JPC_ConstraintType = 2;
+pub const JPC_CONSTRAINT_TYPE_DISTANCE: JPC_ConstraintType = 3;
+pub const JPC_CONSTRAINT_TYPE_HINGE: JPC_ConstraintType = 4;
+pub const JPC_CONSTRAINT_TYPE_SLIDER: JPC_ConstraintType = 5;
+pub const JPC_CONSTRAINT_TYPE_CONE: JPC_ConstraintType = 6;
+pub const JPC_CONSTRAINT_TYPE_SWING_TWIST: JPC_ConstraintType = 7;
+pub const JPC_CONSTRAINT_TYPE_SIX_DOF: JPC_ConstraintType = 8;
+pub const JPC_CONSTRAINT_TYPE_GEAR: JPC_ConstraintType = 9;
+pub const JPC_CONSTRAINT_TYPE_RACK_AND_PINION: JPC_ConstraintType = 10;
+pub const JPC_CONSTRAINT_TYPE_PULLEY: JPC_ConstraintType = 11;
+pub const JPC_CONSTRAINT_TYPE_PATH: JPC_ConstraintType = 12;
+pub const JPC_CONSTRAINT_TYPE_VEHICLE: JPC_ConstraintType = 13;
+pub const JPC_CONSTRAINT_TYPE_OTHER: JPC_ConstraintType = 14;
+pub type JPC_ConstraintType = ::core::ffi::c_uint;
 pub const JPC_TRANSMISSION_MODE_AUTO: JPC_TransmissionMode = 0;
 pub const JPC_TRANSMISSION_MODE_MANUAL: JPC_TransmissionMode = 1;
 pub type JPC_TransmissionMode = ::core::ffi::c_uint;
@@ -292,6 +308,21 @@ pub struct JPC_PathConstraintPath {
 #[repr(C)]
 #[derive(Debug)]
 pub struct JPC_VehicleCollisionTester {
+    _unused: [u8; 0],
+}
+#[repr(C)]
+#[derive(Debug)]
+pub struct JPC_Skeleton {
+    _unused: [u8; 0],
+}
+#[repr(C)]
+#[derive(Debug)]
+pub struct JPC_RagdollSettings {
+    _unused: [u8; 0],
+}
+#[repr(C)]
+#[derive(Debug)]
+pub struct JPC_Ragdoll {
     _unused: [u8; 0],
 }
 pub type JPC_TraceFn =
@@ -2993,6 +3024,9 @@ unsafe extern "C" {
     );
 }
 unsafe extern "C" {
+    pub fn JPC_Constraint_GetType(constraint: *const JPC_Constraint) -> JPC_ConstraintType;
+}
+unsafe extern "C" {
     pub fn JPC_Constraint_AddRef(constraint: *const JPC_Constraint);
 }
 unsafe extern "C" {
@@ -3681,6 +3715,365 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn JPC_Vehicle_GetBody(vehicle: *const JPC_Constraint) -> JPC_BodyID;
+}
+unsafe extern "C" {
+    pub fn JPC_Skeleton_Create() -> *mut JPC_Skeleton;
+}
+unsafe extern "C" {
+    pub fn JPC_Skeleton_AddJoint(
+        skeleton: *mut JPC_Skeleton,
+        name: *const ::core::ffi::c_char,
+        parent_index: i32,
+    ) -> i32;
+}
+unsafe extern "C" {
+    pub fn JPC_Skeleton_GetJointCount(skeleton: *const JPC_Skeleton) -> u32;
+}
+unsafe extern "C" {
+    pub fn JPC_Skeleton_GetJointIndex(
+        skeleton: *const JPC_Skeleton,
+        name: *const ::core::ffi::c_char,
+    ) -> i32;
+}
+unsafe extern "C" {
+    pub fn JPC_Skeleton_GetJointName(
+        skeleton: *const JPC_Skeleton,
+        joint: u32,
+    ) -> *const ::core::ffi::c_char;
+}
+unsafe extern "C" {
+    pub fn JPC_Skeleton_GetParentIndex(skeleton: *const JPC_Skeleton, joint: u32) -> i32;
+}
+unsafe extern "C" {
+    pub fn JPC_Skeleton_AddRef(skeleton: *const JPC_Skeleton);
+}
+unsafe extern "C" {
+    pub fn JPC_Skeleton_Release(skeleton: *const JPC_Skeleton);
+}
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone)]
+pub struct JPC_JointState {
+    pub translation: JPC_Vec3,
+    pub rotation: JPC_Quat,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of JPC_JointState"][::core::mem::size_of::<JPC_JointState>() - 28usize];
+    ["Alignment of JPC_JointState"][::core::mem::align_of::<JPC_JointState>() - 4usize];
+    ["Offset of field: JPC_JointState::translation"]
+        [::core::mem::offset_of!(JPC_JointState, translation) - 0usize];
+    ["Offset of field: JPC_JointState::rotation"]
+        [::core::mem::offset_of!(JPC_JointState, rotation) - 12usize];
+};
+unsafe extern "C" {
+    pub fn JPC_Skeleton_CalculateJointMatrices(
+        skeleton: *const JPC_Skeleton,
+        states: *const JPC_JointState,
+        out_matrices: *mut JPC_Mat44,
+    );
+}
+unsafe extern "C" {
+    pub fn JPC_Skeleton_CalculateJointStates(
+        skeleton: *const JPC_Skeleton,
+        matrices: *const JPC_Mat44,
+        out_states: *mut JPC_JointState,
+    );
+}
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct JPC_TwoBodyConstraintSettings {
+    pub type_: JPC_ConstraintType,
+    pub settings: JPC_TwoBodyConstraintSettings__bindgen_ty_1,
+}
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub union JPC_TwoBodyConstraintSettings__bindgen_ty_1 {
+    pub fixed: JPC_FixedConstraintSettings,
+    pub point: JPC_PointConstraintSettings,
+    pub distance: JPC_DistanceConstraintSettings,
+    pub hinge: JPC_HingeConstraintSettings,
+    pub slider: JPC_SliderConstraintSettings,
+    pub cone: JPC_ConeConstraintSettings,
+    pub swing_twist: JPC_SwingTwistConstraintSettings,
+    pub six_dof: JPC_SixDOFConstraintSettings,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of JPC_TwoBodyConstraintSettings__bindgen_ty_1"]
+        [::core::mem::size_of::<JPC_TwoBodyConstraintSettings__bindgen_ty_1>() - 384usize];
+    ["Alignment of JPC_TwoBodyConstraintSettings__bindgen_ty_1"]
+        [::core::mem::align_of::<JPC_TwoBodyConstraintSettings__bindgen_ty_1>() - 8usize];
+    ["Offset of field: JPC_TwoBodyConstraintSettings__bindgen_ty_1::fixed"]
+        [::core::mem::offset_of!(JPC_TwoBodyConstraintSettings__bindgen_ty_1, fixed) - 0usize];
+    ["Offset of field: JPC_TwoBodyConstraintSettings__bindgen_ty_1::point"]
+        [::core::mem::offset_of!(JPC_TwoBodyConstraintSettings__bindgen_ty_1, point) - 0usize];
+    ["Offset of field: JPC_TwoBodyConstraintSettings__bindgen_ty_1::distance"]
+        [::core::mem::offset_of!(JPC_TwoBodyConstraintSettings__bindgen_ty_1, distance) - 0usize];
+    ["Offset of field: JPC_TwoBodyConstraintSettings__bindgen_ty_1::hinge"]
+        [::core::mem::offset_of!(JPC_TwoBodyConstraintSettings__bindgen_ty_1, hinge) - 0usize];
+    ["Offset of field: JPC_TwoBodyConstraintSettings__bindgen_ty_1::slider"]
+        [::core::mem::offset_of!(JPC_TwoBodyConstraintSettings__bindgen_ty_1, slider) - 0usize];
+    ["Offset of field: JPC_TwoBodyConstraintSettings__bindgen_ty_1::cone"]
+        [::core::mem::offset_of!(JPC_TwoBodyConstraintSettings__bindgen_ty_1, cone) - 0usize];
+    ["Offset of field: JPC_TwoBodyConstraintSettings__bindgen_ty_1::swing_twist"][::core::mem::offset_of!(
+        JPC_TwoBodyConstraintSettings__bindgen_ty_1,
+        swing_twist
+    ) - 0usize];
+    ["Offset of field: JPC_TwoBodyConstraintSettings__bindgen_ty_1::six_dof"]
+        [::core::mem::offset_of!(JPC_TwoBodyConstraintSettings__bindgen_ty_1, six_dof) - 0usize];
+};
+impl Default for JPC_TwoBodyConstraintSettings__bindgen_ty_1 {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of JPC_TwoBodyConstraintSettings"]
+        [::core::mem::size_of::<JPC_TwoBodyConstraintSettings>() - 392usize];
+    ["Alignment of JPC_TwoBodyConstraintSettings"]
+        [::core::mem::align_of::<JPC_TwoBodyConstraintSettings>() - 8usize];
+    ["Offset of field: JPC_TwoBodyConstraintSettings::type_"]
+        [::core::mem::offset_of!(JPC_TwoBodyConstraintSettings, type_) - 0usize];
+    ["Offset of field: JPC_TwoBodyConstraintSettings::settings"]
+        [::core::mem::offset_of!(JPC_TwoBodyConstraintSettings, settings) - 8usize];
+};
+impl Default for JPC_TwoBodyConstraintSettings {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct JPC_RagdollPart {
+    pub body: JPC_BodyCreationSettings,
+    pub to_parent: JPC_TwoBodyConstraintSettings,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of JPC_RagdollPart"][::core::mem::size_of::<JPC_RagdollPart>() - 624usize];
+    ["Alignment of JPC_RagdollPart"][::core::mem::align_of::<JPC_RagdollPart>() - 8usize];
+    ["Offset of field: JPC_RagdollPart::body"]
+        [::core::mem::offset_of!(JPC_RagdollPart, body) - 0usize];
+    ["Offset of field: JPC_RagdollPart::to_parent"]
+        [::core::mem::offset_of!(JPC_RagdollPart, to_parent) - 232usize];
+};
+impl Default for JPC_RagdollPart {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct JPC_RagdollConstraint {
+    pub body1: u32,
+    pub body2: u32,
+    pub constraint: JPC_TwoBodyConstraintSettings,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of JPC_RagdollConstraint"][::core::mem::size_of::<JPC_RagdollConstraint>() - 400usize];
+    ["Alignment of JPC_RagdollConstraint"]
+        [::core::mem::align_of::<JPC_RagdollConstraint>() - 8usize];
+    ["Offset of field: JPC_RagdollConstraint::body1"]
+        [::core::mem::offset_of!(JPC_RagdollConstraint, body1) - 0usize];
+    ["Offset of field: JPC_RagdollConstraint::body2"]
+        [::core::mem::offset_of!(JPC_RagdollConstraint, body2) - 4usize];
+    ["Offset of field: JPC_RagdollConstraint::constraint"]
+        [::core::mem::offset_of!(JPC_RagdollConstraint, constraint) - 8usize];
+};
+impl Default for JPC_RagdollConstraint {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct JPC_RagdollSettingsDesc {
+    pub skeleton: *const JPC_Skeleton,
+    pub parts: *const JPC_RagdollPart,
+    pub num_parts: u32,
+    pub additional_constraints: *const JPC_RagdollConstraint,
+    pub num_additional_constraints: u32,
+    pub stabilize: bool,
+    pub disable_parent_child_collisions: bool,
+    pub pose_matrices: *const JPC_Mat44,
+    pub min_separation_distance: f32,
+    pub calculate_constraint_priorities: bool,
+    pub base_priority: u32,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of JPC_RagdollSettingsDesc"]
+        [::core::mem::size_of::<JPC_RagdollSettingsDesc>() - 64usize];
+    ["Alignment of JPC_RagdollSettingsDesc"]
+        [::core::mem::align_of::<JPC_RagdollSettingsDesc>() - 8usize];
+    ["Offset of field: JPC_RagdollSettingsDesc::skeleton"]
+        [::core::mem::offset_of!(JPC_RagdollSettingsDesc, skeleton) - 0usize];
+    ["Offset of field: JPC_RagdollSettingsDesc::parts"]
+        [::core::mem::offset_of!(JPC_RagdollSettingsDesc, parts) - 8usize];
+    ["Offset of field: JPC_RagdollSettingsDesc::num_parts"]
+        [::core::mem::offset_of!(JPC_RagdollSettingsDesc, num_parts) - 16usize];
+    ["Offset of field: JPC_RagdollSettingsDesc::additional_constraints"]
+        [::core::mem::offset_of!(JPC_RagdollSettingsDesc, additional_constraints) - 24usize];
+    ["Offset of field: JPC_RagdollSettingsDesc::num_additional_constraints"]
+        [::core::mem::offset_of!(JPC_RagdollSettingsDesc, num_additional_constraints) - 32usize];
+    ["Offset of field: JPC_RagdollSettingsDesc::stabilize"]
+        [::core::mem::offset_of!(JPC_RagdollSettingsDesc, stabilize) - 36usize];
+    ["Offset of field: JPC_RagdollSettingsDesc::disable_parent_child_collisions"][::core::mem::offset_of!(
+        JPC_RagdollSettingsDesc,
+        disable_parent_child_collisions
+    ) - 37usize];
+    ["Offset of field: JPC_RagdollSettingsDesc::pose_matrices"]
+        [::core::mem::offset_of!(JPC_RagdollSettingsDesc, pose_matrices) - 40usize];
+    ["Offset of field: JPC_RagdollSettingsDesc::min_separation_distance"]
+        [::core::mem::offset_of!(JPC_RagdollSettingsDesc, min_separation_distance) - 48usize];
+    ["Offset of field: JPC_RagdollSettingsDesc::calculate_constraint_priorities"][::core::mem::offset_of!(
+        JPC_RagdollSettingsDesc,
+        calculate_constraint_priorities
+    ) - 52usize];
+    ["Offset of field: JPC_RagdollSettingsDesc::base_priority"]
+        [::core::mem::offset_of!(JPC_RagdollSettingsDesc, base_priority) - 56usize];
+};
+impl Default for JPC_RagdollSettingsDesc {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+unsafe extern "C" {
+    pub fn JPC_RagdollSettings_Create(
+        desc: *const JPC_RagdollSettingsDesc,
+    ) -> *mut JPC_RagdollSettings;
+}
+unsafe extern "C" {
+    pub fn JPC_RagdollSettings_AddRef(settings: *const JPC_RagdollSettings);
+}
+unsafe extern "C" {
+    pub fn JPC_RagdollSettings_Release(settings: *const JPC_RagdollSettings);
+}
+unsafe extern "C" {
+    pub fn JPC_RagdollSettings_GetSkeleton(
+        settings: *const JPC_RagdollSettings,
+    ) -> *const JPC_Skeleton;
+}
+unsafe extern "C" {
+    pub fn JPC_RagdollSettings_CreateRagdoll(
+        settings: *const JPC_RagdollSettings,
+        system: *mut JPC_PhysicsSystem,
+        group_id: u32,
+        user_data: u64,
+    ) -> *mut JPC_Ragdoll;
+}
+unsafe extern "C" {
+    pub fn JPC_Ragdoll_Destroy(ragdoll: *mut JPC_Ragdoll);
+}
+unsafe extern "C" {
+    pub fn JPC_Ragdoll_AddToPhysicsSystem(ragdoll: *mut JPC_Ragdoll, activation: JPC_Activation);
+}
+unsafe extern "C" {
+    pub fn JPC_Ragdoll_RemoveFromPhysicsSystem(ragdoll: *mut JPC_Ragdoll);
+}
+unsafe extern "C" {
+    pub fn JPC_Ragdoll_IsAdded(ragdoll: *const JPC_Ragdoll) -> bool;
+}
+unsafe extern "C" {
+    pub fn JPC_Ragdoll_Activate(ragdoll: *mut JPC_Ragdoll);
+}
+unsafe extern "C" {
+    pub fn JPC_Ragdoll_IsActive(ragdoll: *const JPC_Ragdoll) -> bool;
+}
+unsafe extern "C" {
+    pub fn JPC_Ragdoll_SetGroupID(ragdoll: *mut JPC_Ragdoll, group_id: u32);
+}
+unsafe extern "C" {
+    pub fn JPC_Ragdoll_SetPose(
+        ragdoll: *mut JPC_Ragdoll,
+        root_offset: JPC_RVec3,
+        matrices: *const JPC_Mat44,
+    );
+}
+unsafe extern "C" {
+    pub fn JPC_Ragdoll_GetPose(
+        ragdoll: *mut JPC_Ragdoll,
+        out_root_offset: *mut JPC_RVec3,
+        out_matrices: *mut JPC_Mat44,
+    );
+}
+unsafe extern "C" {
+    pub fn JPC_Ragdoll_DriveToPoseUsingKinematics(
+        ragdoll: *mut JPC_Ragdoll,
+        root_offset: JPC_RVec3,
+        matrices: *const JPC_Mat44,
+        delta_time: f32,
+    );
+}
+unsafe extern "C" {
+    pub fn JPC_Ragdoll_DriveToPoseUsingMotors(
+        ragdoll: *mut JPC_Ragdoll,
+        root_offset: JPC_RVec3,
+        matrices: *const JPC_Mat44,
+    );
+}
+unsafe extern "C" {
+    pub fn JPC_Ragdoll_ResetWarmStart(ragdoll: *mut JPC_Ragdoll);
+}
+unsafe extern "C" {
+    pub fn JPC_Ragdoll_SetLinearAndAngularVelocity(
+        ragdoll: *mut JPC_Ragdoll,
+        linear: JPC_Vec3,
+        angular: JPC_Vec3,
+    );
+}
+unsafe extern "C" {
+    pub fn JPC_Ragdoll_AddLinearVelocity(ragdoll: *mut JPC_Ragdoll, velocity: JPC_Vec3);
+}
+unsafe extern "C" {
+    pub fn JPC_Ragdoll_AddImpulse(ragdoll: *mut JPC_Ragdoll, impulse: JPC_Vec3);
+}
+unsafe extern "C" {
+    pub fn JPC_Ragdoll_GetRootTransform(
+        ragdoll: *const JPC_Ragdoll,
+        out_position: *mut JPC_RVec3,
+        out_rotation: *mut JPC_Quat,
+    );
+}
+unsafe extern "C" {
+    pub fn JPC_Ragdoll_GetWorldSpaceBounds(ragdoll: *const JPC_Ragdoll) -> JPC_AABox;
+}
+unsafe extern "C" {
+    pub fn JPC_Ragdoll_GetBodyCount(ragdoll: *const JPC_Ragdoll) -> u32;
+}
+unsafe extern "C" {
+    pub fn JPC_Ragdoll_GetBodyID(ragdoll: *const JPC_Ragdoll, index: u32) -> JPC_BodyID;
+}
+unsafe extern "C" {
+    pub fn JPC_Ragdoll_GetConstraintCount(ragdoll: *const JPC_Ragdoll) -> u32;
+}
+unsafe extern "C" {
+    pub fn JPC_Ragdoll_GetConstraint(ragdoll: *mut JPC_Ragdoll, index: u32) -> *mut JPC_Constraint;
+}
+unsafe extern "C" {
+    pub fn JPC_Ragdoll_GetSettings(ragdoll: *const JPC_Ragdoll) -> *const JPC_RagdollSettings;
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]

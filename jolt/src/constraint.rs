@@ -620,7 +620,7 @@ impl SwingTwistConstraintSettings {
         }
     }
 
-    fn to_sys(self) -> sys::JPC_SwingTwistConstraintSettings {
+    pub(crate) fn to_sys(self) -> sys::JPC_SwingTwistConstraintSettings {
         sys::JPC_SwingTwistConstraintSettings {
             base: self.common.to_sys(),
             space: self.space.to_sys(),
@@ -687,7 +687,7 @@ impl SixDofConstraintSettings {
         self
     }
 
-    fn to_sys(self) -> sys::JPC_SixDOFConstraintSettings {
+    pub(crate) fn to_sys(self) -> sys::JPC_SixDOFConstraintSettings {
         sys::JPC_SixDOFConstraintSettings {
             base: self.common.to_sys(),
             space: self.space.to_sys(),
@@ -732,7 +732,7 @@ impl FixedConstraintSettings {
         Self { auto_detect_point: true, ..Default::default() }
     }
 
-    fn to_sys(self) -> sys::JPC_FixedConstraintSettings {
+    pub(crate) fn to_sys(self) -> sys::JPC_FixedConstraintSettings {
         sys::JPC_FixedConstraintSettings {
             base: self.common.to_sys(),
             space: self.space.to_sys(),
@@ -767,7 +767,7 @@ impl PointConstraintSettings {
         Self { point1: point, point2: point, ..Default::default() }
     }
 
-    fn to_sys(self) -> sys::JPC_PointConstraintSettings {
+    pub(crate) fn to_sys(self) -> sys::JPC_PointConstraintSettings {
         sys::JPC_PointConstraintSettings {
             base: self.common.to_sys(),
             space: self.space.to_sys(),
@@ -792,7 +792,7 @@ impl DistanceConstraintSettings {
         Self { point1, point2, ..Default::default() }
     }
 
-    fn to_sys(self) -> sys::JPC_DistanceConstraintSettings {
+    pub(crate) fn to_sys(self) -> sys::JPC_DistanceConstraintSettings {
         sys::JPC_DistanceConstraintSettings {
             base: self.common.to_sys(),
             space: self.space.to_sys(),
@@ -831,7 +831,7 @@ impl HingeConstraintSettings {
         }
     }
 
-    fn to_sys(self) -> sys::JPC_HingeConstraintSettings {
+    pub(crate) fn to_sys(self) -> sys::JPC_HingeConstraintSettings {
         sys::JPC_HingeConstraintSettings {
             base: self.common.to_sys(),
             space: self.space.to_sys(),
@@ -882,7 +882,7 @@ impl SliderConstraintSettings {
         }
     }
 
-    fn to_sys(self) -> sys::JPC_SliderConstraintSettings {
+    pub(crate) fn to_sys(self) -> sys::JPC_SliderConstraintSettings {
         sys::JPC_SliderConstraintSettings {
             base: self.common.to_sys(),
             space: self.space.to_sys(),
@@ -927,7 +927,7 @@ impl ConeConstraintSettings {
         Self { point1: point, twist_axis1: twist_axis, point2: point, twist_axis2: twist_axis, half_cone_angle, ..Default::default() }
     }
 
-    fn to_sys(self) -> sys::JPC_ConeConstraintSettings {
+    pub(crate) fn to_sys(self) -> sys::JPC_ConeConstraintSettings {
         sys::JPC_ConeConstraintSettings {
             base: self.common.to_sys(),
             space: self.space.to_sys(),
@@ -1001,6 +1001,22 @@ pub struct ConstraintMut<'a> {
 impl<'a> ConstraintMut<'a> {
     pub(crate) fn new(entry: &ConstraintEntry, body_interface: *mut sys::JPC_BodyInterface) -> Self {
         Self { raw: entry.raw, kind: entry.kind, body_interface, _system: PhantomData }
+    }
+
+    /// For constraints owned by something else (ragdolls). `None` for kinds this crate does not model.
+    pub(crate) fn from_raw(raw: NonNull<sys::JPC_Constraint>, body_interface: *mut sys::JPC_BodyInterface) -> Option<Self> {
+        let kind = match unsafe { sys::JPC_Constraint_GetType(raw.as_ptr()) } {
+            sys::JPC_CONSTRAINT_TYPE_FIXED => ConstraintKind::Fixed,
+            sys::JPC_CONSTRAINT_TYPE_POINT => ConstraintKind::Point,
+            sys::JPC_CONSTRAINT_TYPE_DISTANCE => ConstraintKind::Distance,
+            sys::JPC_CONSTRAINT_TYPE_HINGE => ConstraintKind::Hinge,
+            sys::JPC_CONSTRAINT_TYPE_SLIDER => ConstraintKind::Slider,
+            sys::JPC_CONSTRAINT_TYPE_CONE => ConstraintKind::Cone,
+            sys::JPC_CONSTRAINT_TYPE_SWING_TWIST => ConstraintKind::SwingTwist,
+            sys::JPC_CONSTRAINT_TYPE_SIX_DOF => ConstraintKind::SixDof,
+            _ => return None,
+        };
+        Some(Self { raw, kind, body_interface, _system: PhantomData })
     }
 
     fn ptr(&self) -> *mut sys::JPC_Constraint {

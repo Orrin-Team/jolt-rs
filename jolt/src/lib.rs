@@ -42,6 +42,7 @@ mod listener;
 mod material;
 mod math;
 mod query;
+pub mod ragdoll;
 mod shape;
 mod snapshot;
 mod system;
@@ -84,6 +85,7 @@ pub use query::{
     ActiveEdgeMode, BackFaceMode, BroadPhaseCastHit, CollideShapeSettings, PointHit, QueryFilter, RayCastHit, RayCastSettings, ShapeCastSettings,
     ShapeHit,
 };
+pub use ragdoll::{JointState, Ragdoll, RagdollConstraint, RagdollJoint, RagdollOptions, RagdollPart, RagdollSettings, Skeleton, SkeletonBuilder};
 pub use shape::{CompoundSubShape, DEFAULT_CONVEX_RADIUS, MassProperties, Shape, ShapeSubType, ShapeType};
 pub use snapshot::{PhysicsSnapshot, StateParts};
 pub use system::{JobSystem, PhysicsSettings, PhysicsSystem, PhysicsSystemSettings, TempAllocator, UpdateError};

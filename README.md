@@ -44,18 +44,19 @@ system.update(1.0 / 60.0, 1, &mut temp, &jobs)?;
 | Queries | ✅ ray (closest/all), point, collide shape, cast shape, broad phase (box, sphere, point, oriented box, ray, box cast), back face / active edge / tolerance settings, layer and body filters · ❌ collect-faces |
 | Constraints | ✅ fixed, point, distance, hinge, slider, cone, swing-twist, six-DOF, gear, rack-and-pinion, pulley, path (Hermite), motors and limits |
 | Vehicles | ✅ wheeled vehicles (engine, transmission, differentials, anti-roll bars, friction curves, ray/sphere/cylinder testers) · ❌ tracked vehicles, motorcycles |
+| Ragdolls | ✅ skeletons (joint hierarchy, local ↔ model space poses), ragdoll settings (any supported joint type, stabilisation, parent-child collision filtering), ragdolls (pose, kinematic and motor driving, impulses) · ❌ skeletal animation, skeleton mapping |
 | Snapshots | ✅ save/restore (global, bodies, contacts, constraints), bytes for networking · ❌ character state |
 | Characters | ✅ `CharacterVirtual` (stairs, floor sticking, shape switching, inner body, listener, character-vs-character), rigid `Character` |
 | Listeners | ✅ contact, body activation, step |
 | Materials | ✅ per shape, mesh triangle and height field cell, reported by hits, contacts and characters |
-| Not started | ❌ ragdolls/skeletons, soft bodies, mutable compounds, debug renderer, shape serialization, double precision |
+| Not started | ❌ soft bodies, mutable compounds, debug renderer, shape serialization, double precision |
 
 ## Safety
 
 - `PhysicsSystem::update` and `destroy_body` take `&mut self`; everything else is `&self`, thread-safe, and goes through Jolt's locking interfaces.
 - Panics in callbacks are caught at the FFI boundary and resumed in Rust.
 - joltc validates what Jolt only asserts in release builds: stale ids, double adds, unknown object layers, out-of-range indices, constraints on freed or character-owned bodies, invalid settings.
-- Constraints are owned by the system and die with their bodies. Characters keep the system alive and defer native destruction until no update can be running.
+- Constraints are owned by the system and die with their bodies. Characters and ragdolls keep the system alive, own their bodies, and defer native destruction until no update can be running.
 - Query collectors run after the native query returns. Body filters and listeners run inside Jolt and must not use the body interface.
 - Vehicles and step listeners run one after another from a single Jolt step listener, so they never race each other.
 - In-memory snapshots only restore onto the same, structurally unchanged world; restoring raw bytes is `unsafe`.

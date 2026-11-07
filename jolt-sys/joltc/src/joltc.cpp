@@ -1309,9 +1309,8 @@ static JPC_Constraint *CreateConstraint(JPC_PhysicsSystem *inSystem, TwoBodyCons
 	return ToC(constraint);
 }
 
-JPC_Constraint *JPC_PhysicsSystem_CreateFixedConstraint(JPC_PhysicsSystem *system, const JPC_FixedConstraintSettings *in, JPC_BodyID body1, JPC_BodyID body2)
+static void ToJphSettings(const JPC_FixedConstraintSettings *in, FixedConstraintSettings &s)
 {
-	FixedConstraintSettings s;
 	ToJph(in->base, s);
 	s.mSpace = (EConstraintSpace)in->space;
 	s.mAutoDetectPoint = in->auto_detect_point;
@@ -1321,22 +1320,32 @@ JPC_Constraint *JPC_PhysicsSystem_CreateFixedConstraint(JPC_PhysicsSystem *syste
 	s.mPoint2 = ToJph(in->point2);
 	s.mAxisX2 = ToJph(in->axis_x2);
 	s.mAxisY2 = ToJph(in->axis_y2);
+}
+
+JPC_Constraint *JPC_PhysicsSystem_CreateFixedConstraint(JPC_PhysicsSystem *system, const JPC_FixedConstraintSettings *in, JPC_BodyID body1, JPC_BodyID body2)
+{
+	FixedConstraintSettings s;
+	ToJphSettings(in, s);
 	return CreateConstraint(system, s, body1, body2);
+}
+
+static void ToJphSettings(const JPC_PointConstraintSettings *in, PointConstraintSettings &s)
+{
+	ToJph(in->base, s);
+	s.mSpace = (EConstraintSpace)in->space;
+	s.mPoint1 = ToJph(in->point1);
+	s.mPoint2 = ToJph(in->point2);
 }
 
 JPC_Constraint *JPC_PhysicsSystem_CreatePointConstraint(JPC_PhysicsSystem *system, const JPC_PointConstraintSettings *in, JPC_BodyID body1, JPC_BodyID body2)
 {
 	PointConstraintSettings s;
-	ToJph(in->base, s);
-	s.mSpace = (EConstraintSpace)in->space;
-	s.mPoint1 = ToJph(in->point1);
-	s.mPoint2 = ToJph(in->point2);
+	ToJphSettings(in, s);
 	return CreateConstraint(system, s, body1, body2);
 }
 
-JPC_Constraint *JPC_PhysicsSystem_CreateDistanceConstraint(JPC_PhysicsSystem *system, const JPC_DistanceConstraintSettings *in, JPC_BodyID body1, JPC_BodyID body2)
+static void ToJphSettings(const JPC_DistanceConstraintSettings *in, DistanceConstraintSettings &s)
 {
-	DistanceConstraintSettings s;
 	ToJph(in->base, s);
 	s.mSpace = (EConstraintSpace)in->space;
 	s.mPoint1 = ToJph(in->point1);
@@ -1344,12 +1353,17 @@ JPC_Constraint *JPC_PhysicsSystem_CreateDistanceConstraint(JPC_PhysicsSystem *sy
 	s.mMinDistance = in->min_distance;
 	s.mMaxDistance = in->max_distance;
 	s.mLimitsSpringSettings = ToJph(in->limits_spring_settings);
+}
+
+JPC_Constraint *JPC_PhysicsSystem_CreateDistanceConstraint(JPC_PhysicsSystem *system, const JPC_DistanceConstraintSettings *in, JPC_BodyID body1, JPC_BodyID body2)
+{
+	DistanceConstraintSettings s;
+	ToJphSettings(in, s);
 	return CreateConstraint(system, s, body1, body2);
 }
 
-JPC_Constraint *JPC_PhysicsSystem_CreateHingeConstraint(JPC_PhysicsSystem *system, const JPC_HingeConstraintSettings *in, JPC_BodyID body1, JPC_BodyID body2)
+static void ToJphSettings(const JPC_HingeConstraintSettings *in, HingeConstraintSettings &s)
 {
-	HingeConstraintSettings s;
 	ToJph(in->base, s);
 	s.mSpace = (EConstraintSpace)in->space;
 	s.mPoint1 = ToJph(in->point1);
@@ -1363,12 +1377,17 @@ JPC_Constraint *JPC_PhysicsSystem_CreateHingeConstraint(JPC_PhysicsSystem *syste
 	s.mLimitsSpringSettings = ToJph(in->limits_spring_settings);
 	s.mMaxFrictionTorque = in->max_friction_torque;
 	s.mMotorSettings = ToJph(in->motor_settings);
+}
+
+JPC_Constraint *JPC_PhysicsSystem_CreateHingeConstraint(JPC_PhysicsSystem *system, const JPC_HingeConstraintSettings *in, JPC_BodyID body1, JPC_BodyID body2)
+{
+	HingeConstraintSettings s;
+	ToJphSettings(in, s);
 	return CreateConstraint(system, s, body1, body2);
 }
 
-JPC_Constraint *JPC_PhysicsSystem_CreateSliderConstraint(JPC_PhysicsSystem *system, const JPC_SliderConstraintSettings *in, JPC_BodyID body1, JPC_BodyID body2)
+static void ToJphSettings(const JPC_SliderConstraintSettings *in, SliderConstraintSettings &s)
 {
-	SliderConstraintSettings s;
 	ToJph(in->base, s);
 	s.mSpace = (EConstraintSpace)in->space;
 	s.mAutoDetectPoint = in->auto_detect_point;
@@ -1383,12 +1402,17 @@ JPC_Constraint *JPC_PhysicsSystem_CreateSliderConstraint(JPC_PhysicsSystem *syst
 	s.mLimitsSpringSettings = ToJph(in->limits_spring_settings);
 	s.mMaxFrictionForce = in->max_friction_force;
 	s.mMotorSettings = ToJph(in->motor_settings);
+}
+
+JPC_Constraint *JPC_PhysicsSystem_CreateSliderConstraint(JPC_PhysicsSystem *system, const JPC_SliderConstraintSettings *in, JPC_BodyID body1, JPC_BodyID body2)
+{
+	SliderConstraintSettings s;
+	ToJphSettings(in, s);
 	return CreateConstraint(system, s, body1, body2);
 }
 
-JPC_Constraint *JPC_PhysicsSystem_CreateConeConstraint(JPC_PhysicsSystem *system, const JPC_ConeConstraintSettings *in, JPC_BodyID body1, JPC_BodyID body2)
+static void ToJphSettings(const JPC_ConeConstraintSettings *in, ConeConstraintSettings &s)
 {
-	ConeConstraintSettings s;
 	ToJph(in->base, s);
 	s.mSpace = (EConstraintSpace)in->space;
 	s.mPoint1 = ToJph(in->point1);
@@ -1396,6 +1420,12 @@ JPC_Constraint *JPC_PhysicsSystem_CreateConeConstraint(JPC_PhysicsSystem *system
 	s.mPoint2 = ToJph(in->point2);
 	s.mTwistAxis2 = ToJph(in->twist_axis2);
 	s.mHalfConeAngle = in->half_cone_angle;
+}
+
+JPC_Constraint *JPC_PhysicsSystem_CreateConeConstraint(JPC_PhysicsSystem *system, const JPC_ConeConstraintSettings *in, JPC_BodyID body1, JPC_BodyID body2)
+{
+	ConeConstraintSettings s;
+	ToJphSettings(in, s);
 	return CreateConstraint(system, s, body1, body2);
 }
 
@@ -1555,9 +1585,8 @@ void JPC_SixDOFConstraintSettings_SetDefault(JPC_SixDOFConstraintSettings *out)
 		out->limits_spring_settings[i] = ToC(s.mLimitsSpringSettings[i]);
 }
 
-JPC_Constraint *JPC_PhysicsSystem_CreateSixDOFConstraint(JPC_PhysicsSystem *system, const JPC_SixDOFConstraintSettings *in, JPC_BodyID body1, JPC_BodyID body2)
+static void ToJphSettings(const JPC_SixDOFConstraintSettings *in, SixDOFConstraintSettings &s)
 {
-	SixDOFConstraintSettings s;
 	ToJph(in->base, s);
 	s.mSpace = (EConstraintSpace)in->space;
 	s.mPosition1 = ToJph(in->position1);
@@ -1576,6 +1605,12 @@ JPC_Constraint *JPC_PhysicsSystem_CreateSixDOFConstraint(JPC_PhysicsSystem *syst
 	}
 	for (int i = 0; i < SixDOFConstraintSettings::EAxis::NumTranslation; ++i)
 		s.mLimitsSpringSettings[i] = ToJph(in->limits_spring_settings[i]);
+}
+
+JPC_Constraint *JPC_PhysicsSystem_CreateSixDOFConstraint(JPC_PhysicsSystem *system, const JPC_SixDOFConstraintSettings *in, JPC_BodyID body1, JPC_BodyID body2)
+{
+	SixDOFConstraintSettings s;
+	ToJphSettings(in, s);
 	return CreateConstraint(system, s, body1, body2);
 }
 
@@ -2187,4 +2222,44 @@ void JPC_PathConstraint_SetTargetPathFraction(JPC_Constraint *constraint, float 
 	if (!path->IsLooping())
 		fraction = Clamp(fraction, 0.0f, path->GetPathMaxFraction());
 	c->SetTargetPathFraction(fraction);
+}
+
+Ref<TwoBodyConstraintSettings> JPC_MakeConstraintSettings(const JPC_TwoBodyConstraintSettings &inSettings)
+{
+	const auto &u = inSettings.settings;
+	switch (inSettings.type)
+	{
+	case JPC_CONSTRAINT_TYPE_FIXED:			{ Ref<FixedConstraintSettings> s = new FixedConstraintSettings; ToJphSettings(&u.fixed, *s); return s.GetPtr(); }
+	case JPC_CONSTRAINT_TYPE_POINT:			{ Ref<PointConstraintSettings> s = new PointConstraintSettings; ToJphSettings(&u.point, *s); return s.GetPtr(); }
+	case JPC_CONSTRAINT_TYPE_DISTANCE:		{ Ref<DistanceConstraintSettings> s = new DistanceConstraintSettings; ToJphSettings(&u.distance, *s); return s.GetPtr(); }
+	case JPC_CONSTRAINT_TYPE_HINGE:			{ Ref<HingeConstraintSettings> s = new HingeConstraintSettings; ToJphSettings(&u.hinge, *s); return s.GetPtr(); }
+	case JPC_CONSTRAINT_TYPE_SLIDER:		{ Ref<SliderConstraintSettings> s = new SliderConstraintSettings; ToJphSettings(&u.slider, *s); return s.GetPtr(); }
+	case JPC_CONSTRAINT_TYPE_CONE:			{ Ref<ConeConstraintSettings> s = new ConeConstraintSettings; ToJphSettings(&u.cone, *s); return s.GetPtr(); }
+	case JPC_CONSTRAINT_TYPE_SWING_TWIST:	{ Ref<SwingTwistConstraintSettings> s = new SwingTwistConstraintSettings; ToJphSwingTwist(u.swing_twist, *s); return s.GetPtr(); }
+	case JPC_CONSTRAINT_TYPE_SIX_DOF:		{ Ref<SixDOFConstraintSettings> s = new SixDOFConstraintSettings; ToJphSettings(&u.six_dof, *s); return s.GetPtr(); }
+	default:								return nullptr;
+	}
+}
+
+BodyCreationSettings JPC_ToJphBodySettings(const JPC_BodyCreationSettings &inSettings) { return ToJph(inSettings); }
+
+JPC_ConstraintType JPC_Constraint_GetType(const JPC_Constraint *constraint)
+{
+	switch (ToJph(constraint)->GetSubType())
+	{
+	case EConstraintSubType::Fixed:			return JPC_CONSTRAINT_TYPE_FIXED;
+	case EConstraintSubType::Point:			return JPC_CONSTRAINT_TYPE_POINT;
+	case EConstraintSubType::Distance:		return JPC_CONSTRAINT_TYPE_DISTANCE;
+	case EConstraintSubType::Hinge:			return JPC_CONSTRAINT_TYPE_HINGE;
+	case EConstraintSubType::Slider:		return JPC_CONSTRAINT_TYPE_SLIDER;
+	case EConstraintSubType::Cone:			return JPC_CONSTRAINT_TYPE_CONE;
+	case EConstraintSubType::SwingTwist:	return JPC_CONSTRAINT_TYPE_SWING_TWIST;
+	case EConstraintSubType::SixDOF:		return JPC_CONSTRAINT_TYPE_SIX_DOF;
+	case EConstraintSubType::Gear:			return JPC_CONSTRAINT_TYPE_GEAR;
+	case EConstraintSubType::RackAndPinion:	return JPC_CONSTRAINT_TYPE_RACK_AND_PINION;
+	case EConstraintSubType::Pulley:		return JPC_CONSTRAINT_TYPE_PULLEY;
+	case EConstraintSubType::Path:			return JPC_CONSTRAINT_TYPE_PATH;
+	case EConstraintSubType::Vehicle:		return JPC_CONSTRAINT_TYPE_VEHICLE;
+	default:								return JPC_CONSTRAINT_TYPE_OTHER;
+	}
 }

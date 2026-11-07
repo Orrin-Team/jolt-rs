@@ -74,6 +74,10 @@ using namespace JPH;
 // Records the error returned by JPC_GetLastError on this thread.
 void JPC_SetError(const char *inMessage);
 
+// Defined in joltc.cpp, shared with the ragdoll code.
+Ref<TwoBodyConstraintSettings> JPC_MakeConstraintSettings(const JPC_TwoBodyConstraintSettings &inSettings);
+BodyCreationSettings JPC_ToJphBodySettings(const JPC_BodyCreationSettings &inSettings);
+
 // ---------------------------------------------------------------------------
 // Conversions
 // ---------------------------------------------------------------------------

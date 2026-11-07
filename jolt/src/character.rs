@@ -473,6 +473,7 @@ impl Default for CharacterGroup {
 pub(crate) enum Deferred {
     CharacterVirtual { raw: NonNull<sys::JPC_CharacterVirtual>, _group: Option<Arc<CharacterGroupInner>> },
     Character(NonNull<sys::JPC_Character>),
+    Ragdoll(NonNull<sys::JPC_Ragdoll>),
 }
 
 // SAFETY: the pointers are owned by the entry and only used once, when it is destroyed.
@@ -488,6 +489,7 @@ impl Deferred {
                 unsafe { sys::JPC_CharacterVirtual_Destroy(raw.as_ptr()) }
             }
             Deferred::Character(raw) => unsafe { sys::JPC_Character_Destroy(raw.as_ptr()) },
+            Deferred::Ragdoll(raw) => unsafe { sys::JPC_Ragdoll_Destroy(raw.as_ptr()) },
         }
     }
 }
