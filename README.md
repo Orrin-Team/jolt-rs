@@ -7,8 +7,8 @@ Rust bindings to [Jolt Physics](https://github.com/jrouwe/JoltPhysics) 5.6.0, bu
 | Path | |
 |---|---|
 | `jolt-sys/joltc` | The C API (`include/joltc.h`). Usable from any language. |
-| `jolt-sys` | Builds Jolt + joltc with CMake; raw bindgen bindings. |
-| `jolt` | Safe Rust wrapper. |
+| `jolt-sys` | Builds Jolt + joltc with CMake; raw bindgen bindings. Published as [`orrin-jolt-sys`](https://crates.io/crates/orrin-jolt-sys). |
+| `jolt` | Safe Rust wrapper. Published as [`orrin-jolt`](https://crates.io/crates/orrin-jolt). |
 
 ```sh
 git clone --recursive https://github.com/Orrin-Team/jolt-rs
@@ -18,6 +18,13 @@ cargo run --example hello_world   # or: --example character
 Needs CMake ≥ 3.20 and a C++17 compiler.
 
 ## Usage
+
+The names `jolt` and `jolt-sys` were taken on crates.io, so the packages are published as `orrin-jolt` and `orrin-jolt-sys`. The libraries keep their names: depend on the package, write `use jolt`.
+
+```toml
+[dependencies]
+jolt = { package = "orrin-jolt", version = "0.1" }
+```
 
 ```rust
 use jolt::*;
@@ -65,9 +72,9 @@ system.update(1.0 / 60.0, 1, &mut temp, &jobs)?;
 
 ```sh
 cargo test                            # integration, feature and regression tests
-cargo test -p jolt --features asserts # with Jolt's asserts compiled in
+cargo test -p orrin-jolt --features asserts # with Jolt's asserts compiled in
 ./scripts/test-asan.sh                # against an AddressSanitizer build (macOS)
-JOLT_SYS_UPDATE_BINDINGS=1 cargo build -p jolt-sys --features bindgen  # after editing joltc.h
+JOLT_SYS_UPDATE_BINDINGS=1 cargo build -p orrin-jolt-sys --features bindgen  # after editing joltc.h
 ```
 
 Jolt is always built in Release. On x86 its SIMD level follows the Rust target features; use `-C target-cpu=native` for AVX2.

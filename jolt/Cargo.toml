@@ -1,13 +1,21 @@
 [package]
-name = "jolt"
+name = "orrin-jolt"
 description = "Safe Rust bindings to Jolt Physics"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "../README.md"
+
+[lib]
+# Published as `orrin-jolt` because `jolt` is taken on crates.io; imported as
+# `jolt` all the same.
+name = "jolt"
 
 [dependencies]
-jolt-sys = { path = "../jolt-sys", version = "0.1.0" }
+jolt-sys = { package = "orrin-jolt-sys", path = "../jolt-sys", version = "0.1.0" }
 glam = { version = "0.34", optional = true }
 
 [features]
