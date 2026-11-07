@@ -202,6 +202,38 @@ impl Shape {
         })
     }
 
+    /// A height field where `material_indices[x + y * (sample_count - 1)]` picks the material of each cell.
+    pub fn height_field_with_materials(
+        samples: &[f32],
+        offset: Vec3,
+        scale: Vec3,
+        sample_count: u32,
+        material_indices: &[u8],
+        materials: &[PhysicsMaterial],
+    ) -> Result<Self> {
+        crate::ensure_init();
+        if samples.len() as u64 != sample_count as u64 * sample_count as u64 {
+            return Err(Error::new("height field needs sample_count * sample_count samples"));
+        }
+        let cells = (sample_count.saturating_sub(1) as u64).pow(2);
+        if material_indices.len() as u64 != cells {
+            return Err(Error::new("height field needs (sample_count - 1)^2 material indices"));
+        }
+        let num_materials = u32::try_from(materials.len()).map_err(|_| Error::new("too many materials"))?;
+        let raw_materials: Vec<*const sys::JPC_PhysicsMaterial> = materials.iter().map(|m| m.as_raw()).collect();
+        Self::from_raw_or_error(unsafe {
+            sys::JPC_HeightFieldShape_CreateWithMaterials(
+                samples.as_ptr(),
+                offset.into(),
+                scale.into(),
+                sample_count,
+                material_indices.as_ptr(),
+                raw_materials.as_ptr(),
+                num_materials,
+            )
+        })
+    }
+
     /// A plane through `normal * -distance`, limited to a square of `half_extent` for the broad phase.
     pub fn plane(normal: Vec3, distance: f32, half_extent: f32) -> Result<Self> {
         crate::ensure_init();

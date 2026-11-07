@@ -534,6 +534,11 @@ impl PhysicsSystem {
         registry.entries.get(&id).map(|entry| ConstraintMut::new(entry, body_interface))
     }
 
+    pub(crate) fn constraint_raw(&mut self, id: ConstraintId, kind: crate::ConstraintKind) -> Option<NonNull<sys::JPC_Constraint>> {
+        let registry = self.constraints.get_mut().unwrap_or_else(|e| e.into_inner());
+        registry.entries.get(&id).filter(|e| e.kind == kind).map(|e| e.raw)
+    }
+
     pub fn constraint_ids(&self) -> Vec<ConstraintId> {
         self.constraints.lock().unwrap_or_else(|e| e.into_inner()).entries.keys().copied().collect()
     }

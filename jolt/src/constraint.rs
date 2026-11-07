@@ -20,6 +20,12 @@ pub enum ConstraintKind {
     Cone,
     SwingTwist,
     SixDof,
+    Gear,
+    RackAndPinion,
+    Pulley,
+    Path,
+    /// See [`PhysicsSystem::vehicle`](crate::PhysicsSystem::vehicle).
+    Vehicle,
 }
 
 /// Shape of the swing limit of swing-twist and six DOF constraints.
@@ -96,7 +102,7 @@ impl Default for SpringSettings {
 }
 
 impl SpringSettings {
-    fn to_sys(self) -> sys::JPC_SpringSettings {
+    pub(crate) fn to_sys(self) -> sys::JPC_SpringSettings {
         match self {
             Self::FrequencyAndDamping { frequency, damping } => sys::JPC_SpringSettings {
                 mode: sys::JPC_SPRING_MODE_FREQUENCY_AND_DAMPING,
@@ -111,7 +117,7 @@ impl SpringSettings {
         }
     }
 
-    fn from_sys(raw: sys::JPC_SpringSettings) -> Self {
+    pub(crate) fn from_sys(raw: sys::JPC_SpringSettings) -> Self {
         if raw.mode == sys::JPC_SPRING_MODE_STIFFNESS_AND_DAMPING {
             Self::StiffnessAndDamping { stiffness: raw.frequency_or_stiffness, damping: raw.damping }
         } else {
@@ -183,7 +189,7 @@ pub struct ConstraintCommon {
 }
 
 impl ConstraintCommon {
-    fn to_sys(self) -> sys::JPC_ConstraintSettings {
+    pub(crate) fn to_sys(self) -> sys::JPC_ConstraintSettings {
         sys::JPC_ConstraintSettings {
             enabled: self.enabled,
             constraint_priority: self.priority,
@@ -193,7 +199,7 @@ impl ConstraintCommon {
         }
     }
 
-    fn from_sys(raw: sys::JPC_ConstraintSettings) -> Self {
+    pub(crate) fn from_sys(raw: sys::JPC_ConstraintSettings) -> Self {
         Self {
             enabled: raw.enabled,
             priority: raw.constraint_priority,
@@ -204,7 +210,7 @@ impl ConstraintCommon {
     }
 }
 
-mod private {
+pub(crate) mod private {
     pub trait Sealed {}
 }
 
@@ -348,6 +354,256 @@ constraint_settings!(SixDofConstraintSettings, SixDof, JPC_SixDOFConstraintSetti
     limits_spring: [SpringSettings; 3],
     motor: [MotorSettings; 6],
 });
+
+constraint_settings!(GearConstraintSettings, Gear, JPC_GearConstraintSettings, JPC_GearConstraintSettings_SetDefault, JPC_PhysicsSystem_CreateGearConstraint, {
+    hinge_axis1: Vec3,
+    hinge_axis2: Vec3,
+    /// Teeth of gear 2 / teeth of gear 1: body 2 turns `1 / ratio` times as fast as body 1, the other way.
+    ratio: f32,
+});
+
+constraint_settings!(RackAndPinionConstraintSettings, RackAndPinion, JPC_RackAndPinionConstraintSettings, JPC_RackAndPinionConstraintSettings_SetDefault, JPC_PhysicsSystem_CreateRackAndPinionConstraint, {
+    /// Rotation axis of the pinion (body 1).
+    hinge_axis: Vec3,
+    /// Sliding axis of the rack (body 2).
+    slider_axis: Vec3,
+    /// Pinion rotation (radians) per meter of rack travel.
+    ratio: f32,
+});
+
+constraint_settings!(PulleyConstraintSettings, Pulley, JPC_PulleyConstraintSettings, JPC_PulleyConstraintSettings_SetDefault, JPC_PhysicsSystem_CreatePulleyConstraint, {
+    body_point1: Vec3,
+    fixed_point1: Vec3,
+    body_point2: Vec3,
+    fixed_point2: Vec3,
+    /// Length on side 1 + ratio * length on side 2 stays within the limits.
+    ratio: f32,
+    min_length: f32,
+    /// Negative means "the initial length".
+    max_length: f32,
+});
+
+impl GearConstraintSettings {
+    /// Gears turning around the given world space axes.
+    pub fn new(hinge_axis1: Vec3, hinge_axis2: Vec3, ratio: f32) -> Self {
+        Self { hinge_axis1, hinge_axis2, ratio, ..Default::default() }
+    }
+
+    /// Ratio from tooth counts.
+    pub fn with_teeth(hinge_axis1: Vec3, hinge_axis2: Vec3, teeth1: u32, teeth2: u32) -> Self {
+        Self::new(hinge_axis1, hinge_axis2, teeth2 as f32 / teeth1 as f32)
+    }
+
+    fn to_sys(self) -> sys::JPC_GearConstraintSettings {
+        sys::JPC_GearConstraintSettings {
+            base: self.common.to_sys(),
+            space: self.space.to_sys(),
+            hinge_axis1: self.hinge_axis1.into(),
+            hinge_axis2: self.hinge_axis2.into(),
+            ratio: self.ratio,
+        }
+    }
+
+    fn from_sys(r: &sys::JPC_GearConstraintSettings) -> Self {
+        Self {
+            common: ConstraintCommon::from_sys(r.base),
+            space: ConstraintSpace::from_sys(r.space),
+            hinge_axis1: r.hinge_axis1.into(),
+            hinge_axis2: r.hinge_axis2.into(),
+            ratio: r.ratio,
+        }
+    }
+}
+
+impl RackAndPinionConstraintSettings {
+    pub fn new(hinge_axis: Vec3, slider_axis: Vec3, ratio: f32) -> Self {
+        Self { hinge_axis, slider_axis, ratio, ..Default::default() }
+    }
+
+    /// Ratio from tooth counts: `rack_teeth` teeth over `rack_length` meters meshing with a `pinion_teeth` pinion.
+    pub fn with_teeth(hinge_axis: Vec3, slider_axis: Vec3, rack_teeth: u32, rack_length: f32, pinion_teeth: u32) -> Self {
+        Self::new(hinge_axis, slider_axis, std::f32::consts::TAU * rack_teeth as f32 / (rack_length * pinion_teeth as f32))
+    }
+
+    fn to_sys(self) -> sys::JPC_RackAndPinionConstraintSettings {
+        sys::JPC_RackAndPinionConstraintSettings {
+            base: self.common.to_sys(),
+            space: self.space.to_sys(),
+            hinge_axis: self.hinge_axis.into(),
+            slider_axis: self.slider_axis.into(),
+            ratio: self.ratio,
+        }
+    }
+
+    fn from_sys(r: &sys::JPC_RackAndPinionConstraintSettings) -> Self {
+        Self {
+            common: ConstraintCommon::from_sys(r.base),
+            space: ConstraintSpace::from_sys(r.space),
+            hinge_axis: r.hinge_axis.into(),
+            slider_axis: r.slider_axis.into(),
+            ratio: r.ratio,
+        }
+    }
+}
+
+impl PulleyConstraintSettings {
+    /// A rope from `body_point1` over the fixed points to `body_point2` (world space).
+    pub fn new(body_point1: Vec3, fixed_point1: Vec3, body_point2: Vec3, fixed_point2: Vec3) -> Self {
+        Self { body_point1, fixed_point1, body_point2, fixed_point2, ..Default::default() }
+    }
+
+    fn to_sys(self) -> sys::JPC_PulleyConstraintSettings {
+        sys::JPC_PulleyConstraintSettings {
+            base: self.common.to_sys(),
+            space: self.space.to_sys(),
+            body_point1: self.body_point1.into(),
+            fixed_point1: self.fixed_point1.into(),
+            body_point2: self.body_point2.into(),
+            fixed_point2: self.fixed_point2.into(),
+            ratio: self.ratio,
+            min_length: self.min_length,
+            max_length: self.max_length,
+        }
+    }
+
+    fn from_sys(r: &sys::JPC_PulleyConstraintSettings) -> Self {
+        Self {
+            common: ConstraintCommon::from_sys(r.base),
+            space: ConstraintSpace::from_sys(r.space),
+            body_point1: r.body_point1.into(),
+            fixed_point1: r.fixed_point1.into(),
+            body_point2: r.body_point2.into(),
+            fixed_point2: r.fixed_point2.into(),
+            ratio: r.ratio,
+            min_length: r.min_length,
+            max_length: r.max_length,
+        }
+    }
+}
+
+/// A smooth (Hermite) path that a [`PathConstraintSettings`] keeps a body on. Immutable and cheap to clone.
+pub struct PathConstraintPath {
+    raw: NonNull<sys::JPC_PathConstraintPath>,
+}
+
+// SAFETY: immutable after creation, atomic reference count.
+unsafe impl Send for PathConstraintPath {}
+unsafe impl Sync for PathConstraintPath {}
+
+/// A control point of a [`PathConstraintPath`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PathPoint {
+    pub position: Vec3,
+    pub tangent: Vec3,
+    /// Perpendicular to the tangent; orients the body when its rotation follows the path.
+    pub normal: Vec3,
+}
+
+impl PathConstraintPath {
+    /// A path through at least 2 points, in the space of body 1.
+    pub fn hermite(points: &[PathPoint], looping: bool) -> crate::Result<Self> {
+        crate::ensure_init();
+        let raw_points: Vec<sys::JPC_PathPoint> = points
+            .iter()
+            .map(|p| sys::JPC_PathPoint { position: p.position.into(), tangent: p.tangent.into(), normal: p.normal.into() })
+            .collect();
+        let count = u32::try_from(raw_points.len()).map_err(|_| crate::Error::new("too many points"))?;
+        let raw = unsafe { sys::JPC_PathConstraintPathHermite_Create(raw_points.as_ptr(), count, looping) };
+        NonNull::new(raw).map(|raw| Self { raw }).ok_or_else(crate::Error::last)
+    }
+
+    /// Fractions along the path run from 0 to this value.
+    pub fn max_fraction(&self) -> f32 {
+        unsafe { sys::JPC_PathConstraintPath_GetMaxFraction(self.raw.as_ptr()) }
+    }
+}
+
+impl Clone for PathConstraintPath {
+    fn clone(&self) -> Self {
+        unsafe { sys::JPC_PathConstraintPath_AddRef(self.raw.as_ptr()) };
+        Self { raw: self.raw }
+    }
+}
+
+impl Drop for PathConstraintPath {
+    fn drop(&mut self) {
+        unsafe { sys::JPC_PathConstraintPath_Release(self.raw.as_ptr()) }
+    }
+}
+
+impl std::fmt::Debug for PathConstraintPath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PathConstraintPath").field("max_fraction", &self.max_fraction()).finish()
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PathRotationConstraint {
+    /// Rotation is unconstrained.
+    #[default]
+    Free,
+    ConstrainAroundTangent,
+    ConstrainAroundNormal,
+    ConstrainAroundBinormal,
+    /// Rotation follows the path's tangent and normal.
+    ConstrainToPath,
+    /// Rotation is locked relative to body 1.
+    FullyConstrained,
+}
+
+/// Keeps body 2 on a path attached to body 1 (or the world).
+#[derive(Clone, Debug)]
+pub struct PathConstraintSettings {
+    pub common: ConstraintCommon,
+    pub path: PathConstraintPath,
+    /// Placement of the path relative to body 1.
+    pub path_position: Vec3,
+    pub path_rotation: Quat,
+    /// Where on the path body 2 starts.
+    pub path_fraction: f32,
+    pub max_friction_force: f32,
+    pub position_motor: MotorSettings,
+    pub rotation_constraint: PathRotationConstraint,
+}
+
+impl PathConstraintSettings {
+    pub fn new(path: PathConstraintPath) -> Self {
+        let mut d = sys::JPC_PathConstraintSettings::default();
+        unsafe { sys::JPC_PathConstraintSettings_SetDefault(&mut d) };
+        Self {
+            common: ConstraintCommon::from_sys(d.base),
+            path,
+            path_position: d.path_position.into(),
+            path_rotation: d.path_rotation.into(),
+            path_fraction: d.path_fraction,
+            max_friction_force: d.max_friction_force,
+            position_motor: MotorSettings::from_sys(d.position_motor_settings),
+            rotation_constraint: PathRotationConstraint::Free,
+        }
+    }
+}
+
+impl private::Sealed for PathConstraintSettings {}
+
+impl ConstraintSettings for PathConstraintSettings {
+    fn kind(&self) -> ConstraintKind {
+        ConstraintKind::Path
+    }
+
+    unsafe fn create(&self, system: *mut sys::JPC_PhysicsSystem, body1: u32, body2: u32) -> *mut sys::JPC_Constraint {
+        let raw = sys::JPC_PathConstraintSettings {
+            base: self.common.to_sys(),
+            path: self.path.raw.as_ptr(),
+            path_position: self.path_position.into(),
+            path_rotation: self.path_rotation.into(),
+            path_fraction: self.path_fraction,
+            max_friction_force: self.max_friction_force,
+            position_motor_settings: self.position_motor.to_sys(),
+            rotation_constraint_type: self.rotation_constraint as sys::JPC_PathRotationConstraintType,
+        };
+        unsafe { sys::JPC_PhysicsSystem_CreatePathConstraint(system, &raw, body1, body2) }
+    }
+}
 
 impl SwingTwistConstraintSettings {
     /// A shoulder-like joint at a world space point. The twist axis points along the limb; the plane axis is
@@ -973,6 +1229,65 @@ impl<'a> ConstraintMut<'a> {
         }
         unsafe { sys::JPC_SixDOFConstraint_SetTargetPositionCS(self.ptr(), position.into()) };
         self.wake();
+        true
+    }
+
+    /// Current rope length (side 1 + ratio * side 2), if this is a pulley.
+    pub fn pulley_length(&self) -> Option<f32> {
+        (self.kind == ConstraintKind::Pulley).then(|| unsafe { sys::JPC_PulleyConstraint_GetCurrentLength(self.ptr()) })
+    }
+
+    /// Pulleys only; needs `0 <= min <= max`. Returns false otherwise.
+    pub fn set_pulley_length(&mut self, min: f32, max: f32) -> bool {
+        if self.kind != ConstraintKind::Pulley || min < 0.0 || min > max {
+            return false;
+        }
+        unsafe { sys::JPC_PulleyConstraint_SetLength(self.ptr(), min, max) };
+        self.wake();
+        true
+    }
+
+    /// Where body 2 is along the path, if this is a path constraint.
+    pub fn path_fraction(&self) -> Option<f32> {
+        (self.kind == ConstraintKind::Path).then(|| unsafe { sys::JPC_PathConstraint_GetPathFraction(self.ptr()) })
+    }
+
+    /// Path constraints only. Returns false for other kinds.
+    pub fn set_path_motor_state(&mut self, state: MotorState) -> bool {
+        if self.kind != ConstraintKind::Path {
+            return false;
+        }
+        unsafe { sys::JPC_PathConstraint_SetPositionMotorState(self.ptr(), state.to_sys()) };
+        self.wake();
+        true
+    }
+
+    /// Target speed along the path (velocity motor). Path constraints only.
+    pub fn set_path_target_velocity(&mut self, velocity: f32) -> bool {
+        if self.kind != ConstraintKind::Path {
+            return false;
+        }
+        unsafe { sys::JPC_PathConstraint_SetTargetVelocity(self.ptr(), velocity) };
+        self.wake();
+        true
+    }
+
+    /// Target fraction along the path (position motor), clamped unless the path loops. Path constraints only.
+    pub fn set_path_target_fraction(&mut self, fraction: f32) -> bool {
+        if self.kind != ConstraintKind::Path {
+            return false;
+        }
+        unsafe { sys::JPC_PathConstraint_SetTargetPathFraction(self.ptr(), fraction) };
+        self.wake();
+        true
+    }
+
+    /// Path constraints only. Returns false for other kinds.
+    pub fn set_path_max_friction_force(&mut self, force: f32) -> bool {
+        if self.kind != ConstraintKind::Path {
+            return false;
+        }
+        unsafe { sys::JPC_PathConstraint_SetMaxFrictionForce(self.ptr(), force) };
         true
     }
 

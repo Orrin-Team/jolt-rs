@@ -284,6 +284,7 @@ JPC_CharacterVirtual *JPC_CharacterVirtual_Create(const JPC_CharacterVirtualSett
 		// The constructor adds the inner body to the world
 		std::unique_lock lock(system->mBodyStateMutex);
 		character->mCharacter = new CharacterVirtual(s, ToJph(position), ToJph(rotation), user_data, &system->mSystem);
+		system->BumpStructure();
 		BodyID inner = character->mCharacter->GetInnerBodyID();
 		if (!inner.IsInvalid())
 			system->mProtectedBodies.insert(inner.GetIndexAndSequenceNumber());
@@ -310,6 +311,7 @@ void JPC_CharacterVirtual_Destroy(JPC_CharacterVirtual *character)
 		std::unique_lock lock(system->mBodyStateMutex);
 		system->Unprotect(character->mCharacter->GetInnerBodyID());
 		character->mCharacter = nullptr;
+		system->BumpStructure();
 	}
 	delete character;
 }
@@ -393,7 +395,10 @@ bool JPC_CharacterVirtual_SetShape(JPC_CharacterVirtual *character, const JPC_Sh
 void JPC_CharacterVirtual_SetInnerBodyShape(JPC_CharacterVirtual *character, const JPC_Shape *shape)
 {
 	if (shape != nullptr && !character->mCharacter->GetInnerBodyID().IsInvalid())
+	{
 		character->mCharacter->SetInnerBodyShape(ToJph(shape));
+		character->mSystem->BumpStructure();
+	}
 }
 
 JPC_Vec3 JPC_CharacterVirtual_CancelVelocityTowardsSteepSlopes(const JPC_CharacterVirtual *character, JPC_Vec3 desired_velocity)
@@ -552,6 +557,7 @@ void JPC_Character_Destroy(JPC_Character *character)
 		// ~Character destroys the body, which must not be in the world anymore
 		character->mCharacter->RemoveFromPhysicsSystem();
 		character->mCharacter = nullptr;
+		system->BumpStructure();
 	}
 	delete character;
 }
@@ -562,13 +568,17 @@ void JPC_Character_AddToPhysicsSystem(JPC_Character *c, JPC_Activation activatio
 {
 	std::unique_lock lock(c->mSystem->mBodyStateMutex);
 	if (!c->mSystem->mSystem.GetBodyInterface().IsAdded(c->mCharacter->GetBodyID()))
+	{
 		c->mCharacter->AddToPhysicsSystem(ToJph(activation));
+		c->mSystem->BumpStructure();
+	}
 }
 
 void JPC_Character_RemoveFromPhysicsSystem(JPC_Character *c)
 {
 	std::unique_lock lock(c->mSystem->mBodyStateMutex);
 	c->mCharacter->RemoveFromPhysicsSystem();
+	c->mSystem->BumpStructure();
 }
 
 void JPC_Character_Activate(JPC_Character *c)
@@ -616,7 +626,10 @@ bool JPC_Character_SetLayer(JPC_Character *c, JPC_ObjectLayer layer)
 
 bool JPC_Character_SetShape(JPC_Character *c, const JPC_Shape *shape, float max_penetration_depth)
 {
-	return shape != nullptr && c->mCharacter->SetShape(ToJph(shape), max_penetration_depth);
+	if (shape == nullptr || !c->mCharacter->SetShape(ToJph(shape), max_penetration_depth))
+		return false;
+	c->mSystem->BumpStructure();
+	return true;
 }
 
 const JPC_Shape *JPC_Character_GetShape(const JPC_Character *c) { return reinterpret_cast<const JPC_Shape *>(c->mCharacter->GetShape()); }

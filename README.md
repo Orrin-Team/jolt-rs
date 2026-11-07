@@ -41,12 +41,14 @@ system.update(1.0 / 60.0, 1, &mut temp, &jobs)?;
 |---|---|
 | Shapes | ✅ sphere, box, capsule, tapered capsule, cylinder, tapered cylinder, convex hull, mesh, height field, plane, empty, static compound, rotated/translated, scaled, offset COM · ❌ mutable compound |
 | Bodies | ✅ creation settings, add/remove/destroy (single and batch), transforms, velocities, forces, impulses, buoyancy, kinematics, motion type/quality, material properties, collision groups, bounds, mass, user data |
-| Queries | ✅ ray (closest/all), point, collide shape, cast shape, with layer/body filters · ❌ broad phase AABB queries, collect-faces settings |
-| Constraints | ✅ fixed, point, distance, hinge, slider, cone, swing-twist, six-DOF, motors and limits · ❌ path, gear, pulley, rack-and-pinion |
+| Queries | ✅ ray (closest/all), point, collide shape, cast shape, broad phase (box, sphere, point, oriented box, ray, box cast), back face / active edge / tolerance settings, layer and body filters · ❌ collect-faces |
+| Constraints | ✅ fixed, point, distance, hinge, slider, cone, swing-twist, six-DOF, gear, rack-and-pinion, pulley, path (Hermite), motors and limits |
+| Vehicles | ✅ wheeled vehicles (engine, transmission, differentials, anti-roll bars, friction curves, ray/sphere/cylinder testers) · ❌ tracked vehicles, motorcycles |
+| Snapshots | ✅ save/restore (global, bodies, contacts, constraints), bytes for networking · ❌ character state |
 | Characters | ✅ `CharacterVirtual` (stairs, floor sticking, shape switching, inner body, listener, character-vs-character), rigid `Character` |
 | Listeners | ✅ contact, body activation, step |
-| Materials | ✅ per shape and per mesh triangle, reported by hits, contacts and characters · ❌ height field materials |
-| Not started | ❌ vehicles, ragdolls/skeletons, soft bodies, debug renderer, serialization/state recording, double precision |
+| Materials | ✅ per shape, mesh triangle and height field cell, reported by hits, contacts and characters |
+| Not started | ❌ ragdolls/skeletons, soft bodies, mutable compounds, debug renderer, shape serialization, double precision |
 
 ## Safety
 
@@ -55,6 +57,8 @@ system.update(1.0 / 60.0, 1, &mut temp, &jobs)?;
 - joltc validates what Jolt only asserts in release builds: stale ids, double adds, unknown object layers, out-of-range indices, constraints on freed or character-owned bodies, invalid settings.
 - Constraints are owned by the system and die with their bodies. Characters keep the system alive and defer native destruction until no update can be running.
 - Query collectors run after the native query returns. Body filters and listeners run inside Jolt and must not use the body interface.
+- Vehicles and step listeners run one after another from a single Jolt step listener, so they never race each other.
+- In-memory snapshots only restore onto the same, structurally unchanged world; restoring raw bytes is `unsafe`.
 
 ## Development
 

@@ -56,6 +56,9 @@
 #include <Jolt/Physics/Constraints/SixDOFConstraint.h>
 #include <Jolt/Physics/Constraints/SwingTwistConstraint.h>
 #include <Jolt/Physics/PhysicsStepListener.h>
+#include <Jolt/Physics/Vehicle/VehicleConstraint.h>
+
+#include <atomic>
 
 #include <condition_variable>
 #include <memory>
@@ -377,6 +380,20 @@ public:
 	}
 };
 
+// Jolt may run separate step listeners in parallel, so a Rust listener could race a vehicle touching the same
+// bodies. Every listener and vehicle of a system therefore runs from this single listener, one after another.
+class CombinedStepListener final : public PhysicsStepListener
+{
+public:
+	virtual void			OnStep(const PhysicsStepListenerContext &inContext) override
+	{
+		for (PhysicsStepListener *listener : mListeners)
+			listener->OnStep(inContext);
+	}
+
+	Array<PhysicsStepListener *> mListeners;
+};
+
 // ---------------------------------------------------------------------------
 // Physics system
 // ---------------------------------------------------------------------------
@@ -421,6 +438,31 @@ struct JPC_PhysicsSystem
 	// Taken exclusively while bodies enter or leave the world, and shared by calls whose Jolt implementation
 	// activates a body without checking that it is in the world. This turns "check, then act" into one step.
 	SharedMutex							mBodyStateMutex;
+
+	// Bumped whenever bodies, shapes, motion types or constraints change, so snapshots can refuse to restore onto
+	// a world they don't match (Jolt restores without validating).
+	std::atomic<uint64>					mStructureVersion { 0 };
+	void								BumpStructure() { ++mStructureVersion; }
+
+	CombinedStepListener				mStepListeners;
+
+	void								AddStepListener(PhysicsStepListener *inListener)
+	{
+		if (mStepListeners.mListeners.empty())
+			mSystem.AddStepListener(&mStepListeners);
+		mStepListeners.mListeners.push_back(inListener);
+	}
+
+	void								RemoveStepListener(PhysicsStepListener *inListener)
+	{
+		Array<PhysicsStepListener *> &listeners = mStepListeners.mListeners;
+		Array<PhysicsStepListener *>::iterator it = std::find(listeners.begin(), listeners.end(), inListener);
+		if (it == listeners.end())
+			return;
+		listeners.erase(it);
+		if (listeners.empty())
+			mSystem.RemoveStepListener(&mStepListeners);
+	}
 
 	// Bodies owned by characters. Guarded by mBodyStateMutex.
 	UnorderedSet<uint32>				mProtectedBodies;

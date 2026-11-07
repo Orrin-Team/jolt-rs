@@ -11,6 +11,7 @@ add_subdirectory("${JOLT_SOURCE_DIR}/Build" "${CMAKE_CURRENT_BINARY_DIR}/Jolt")
 target_sources(Jolt PRIVATE
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/joltc.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/joltc_character.cpp"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/joltc_vehicle.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/joltc_internal.h")
 target_include_directories(Jolt PUBLIC "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>")
 

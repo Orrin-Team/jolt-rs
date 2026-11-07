@@ -6,6 +6,16 @@
 #include <cstdio>
 #include <string>
 
+#include <Jolt/Physics/Collision/AABoxCast.h>
+#include <Jolt/Physics/Collision/BroadPhase/BroadPhaseQuery.h>
+#include <Jolt/Physics/Constraints/GearConstraint.h>
+#include <Jolt/Physics/Constraints/PathConstraint.h>
+#include <Jolt/Physics/Constraints/PathConstraintPathHermite.h>
+#include <Jolt/Physics/Constraints/PulleyConstraint.h>
+#include <Jolt/Physics/Constraints/RackAndPinionConstraint.h>
+#include <Jolt/Physics/StateRecorderImpl.h>
+#include <Jolt/Geometry/OrientedBox.h>
+
 static_assert(sizeof(JPC_ObjectLayer) == sizeof(ObjectLayer), "JPC_ObjectLayer must match JPH_OBJECT_LAYER_BITS");
 static_assert(sizeof(JPC_BodyID) == sizeof(BodyID), "BodyID size mismatch");
 static_assert(sizeof(JPC_SubShapeID) == sizeof(SubShapeID), "SubShapeID size mismatch");
@@ -452,8 +462,23 @@ uint32_t JPC_PhysicsSystem_GetActiveBodies(const JPC_PhysicsSystem *system, JPC_
 JPC_BodyInterface *JPC_PhysicsSystem_GetBodyInterface(JPC_PhysicsSystem *system) { return &system->mBodyInterface; }
 JPC_BodyInterface *JPC_PhysicsSystem_GetBodyInterfaceNoLock(JPC_PhysicsSystem *system) { return &system->mBodyInterfaceNoLock; }
 
-void JPC_PhysicsSystem_AddConstraint(JPC_PhysicsSystem *system, JPC_Constraint *constraint) { system->mSystem.AddConstraint(ToJph(constraint)); }
-void JPC_PhysicsSystem_RemoveConstraint(JPC_PhysicsSystem *system, JPC_Constraint *constraint) { system->mSystem.RemoveConstraint(ToJph(constraint)); }
+void JPC_PhysicsSystem_AddConstraint(JPC_PhysicsSystem *system, JPC_Constraint *constraint)
+{
+	Constraint *c = ToJph(constraint);
+	system->mSystem.AddConstraint(c);
+	if (c->GetSubType() == EConstraintSubType::Vehicle)
+		system->AddStepListener(static_cast<VehicleConstraint *>(c));
+	system->BumpStructure();
+}
+
+void JPC_PhysicsSystem_RemoveConstraint(JPC_PhysicsSystem *system, JPC_Constraint *constraint)
+{
+	Constraint *c = ToJph(constraint);
+	if (c->GetSubType() == EConstraintSubType::Vehicle)
+		system->RemoveStepListener(static_cast<VehicleConstraint *>(c));
+	system->mSystem.RemoveConstraint(c);
+	system->BumpStructure();
+}
 
 void JPC_PhysicsSystem_SetContactListener(JPC_PhysicsSystem *system, const JPC_ContactListenerFns *fns, void *user_data)
 {
@@ -598,6 +623,7 @@ JPC_BodyID JPC_BodyInterface_CreateAndAddBody(JPC_BodyInterface *bi, const JPC_B
 	BodyID id = ToJph(bi)->CreateAndAddBody(ToJph(*settings), ToJph(activation));
 	if (id.IsInvalid())
 		JPC_SetError("Out of bodies (max_bodies reached)");
+	bi->mOwner->BumpStructure();
 	return ToC(id);
 }
 
@@ -631,19 +657,24 @@ void JPC_BodyInterface_DestroyBody(JPC_BodyInterface *bi, JPC_BodyID id)
 	}
 	ToJph(bi)->RemoveBody(body_id);
 	ToJph(bi)->DestroyBody(body_id);
+	bi->mOwner->BumpStructure();
 }
 
 void JPC_BodyInterface_AddBody(JPC_BodyInterface *bi, JPC_BodyID id, JPC_Activation activation)
 {
 	std::unique_lock lock(bi->mOwner->mBodyStateMutex);
 	if (!ToJph(bi)->IsAdded(ToJph(id)))
+	{
 		ToJph(bi)->AddBody(ToJph(id), ToJph(activation));
+		bi->mOwner->BumpStructure();
+	}
 }
 
 void JPC_BodyInterface_RemoveBody(JPC_BodyInterface *bi, JPC_BodyID id)
 {
 	std::unique_lock lock(bi->mOwner->mBodyStateMutex);
 	ToJph(bi)->RemoveBody(ToJph(id));
+	bi->mOwner->BumpStructure();
 }
 
 // Collects valid, unique ids whose "added" state equals inAdded
@@ -671,6 +702,7 @@ void JPC_BodyInterface_AddBodies(JPC_BodyInterface *bi, const JPC_BodyID *ids, u
 		return;
 	BodyInterface::AddState state = ToJph(bi)->AddBodiesPrepare(bodies.data(), (int)bodies.size());
 	ToJph(bi)->AddBodiesFinalize(bodies.data(), (int)bodies.size(), state, ToJph(activation));
+	bi->mOwner->BumpStructure();
 }
 
 void JPC_BodyInterface_RemoveBodies(JPC_BodyInterface *bi, const JPC_BodyID *ids, uint32_t count)
@@ -678,7 +710,10 @@ void JPC_BodyInterface_RemoveBodies(JPC_BodyInterface *bi, const JPC_BodyID *ids
 	std::unique_lock lock(bi->mOwner->mBodyStateMutex);
 	Array<BodyID> bodies = FilterBodies(bi, ids, count, true);
 	if (!bodies.empty())
+	{
 		ToJph(bi)->RemoveBodies(bodies.data(), (int)bodies.size());
+		bi->mOwner->BumpStructure();
+	}
 }
 
 // For calls whose Jolt implementation activates the body without checking that it is in the world.
@@ -713,6 +748,7 @@ JPC_Shape *JPC_BodyInterface_GetShape(const JPC_BodyInterface *bi, JPC_BodyID id
 void JPC_BodyInterface_SetShape(JPC_BodyInterface *bi, JPC_BodyID id, const JPC_Shape *shape, bool update_mass_properties, JPC_Activation activation)
 {
 	ToJph(bi)->SetShape(ToJph(id), ToJph(shape), update_mass_properties, ToJph(activation));
+	bi->mOwner->BumpStructure();
 }
 
 JPC_ObjectLayer JPC_BodyInterface_GetObjectLayer(const JPC_BodyInterface *bi, JPC_BodyID id) { return ToJph(bi)->GetObjectLayer(ToJph(id)); }
@@ -866,6 +902,7 @@ bool JPC_BodyInterface_SetMotionType(JPC_BodyInterface *bi, JPC_BodyID id, JPC_M
 		return false;
 	}
 	ToJph(bi)->SetMotionType(ToJph(id), (EMotionType)motion_type, ToJph(activation));
+	bi->mOwner->BumpStructure();
 	return true;
 }
 JPC_MotionQuality JPC_BodyInterface_GetMotionQuality(const JPC_BodyInterface *bi, JPC_BodyID id) { return (JPC_MotionQuality)ToJph(bi)->GetMotionQuality(ToJph(id)); }
@@ -1365,8 +1402,16 @@ JPC_Constraint *JPC_PhysicsSystem_CreateConeConstraint(JPC_PhysicsSystem *system
 void JPC_BodyInterface_ActivateConstraint(JPC_BodyInterface *bi, const JPC_Constraint *constraint)
 {
 	// ActivateBodies does not check that the bodies are in the world
-	const TwoBodyConstraint *c = static_cast<const TwoBodyConstraint *>(ToJph(constraint));
 	std::shared_lock body_state_lock(bi->mOwner->mBodyStateMutex);
+	const Constraint *constraint_base = ToJph(constraint);
+	if (constraint_base->GetSubType() == EConstraintSubType::Vehicle)
+	{
+		BodyID id = static_cast<const VehicleConstraint *>(constraint_base)->GetVehicleBody()->GetID();
+		if (IsAddedAndMovable(bi, ToC(id)))
+			ToJph(bi)->ActivateBody(id);
+		return;
+	}
+	const TwoBodyConstraint *c = static_cast<const TwoBodyConstraint *>(constraint_base);
 	for (const Body *body : { c->GetBody1(), c->GetBody2() })
 		if (!body->GetID().IsInvalid() && IsAddedAndMovable(bi, ToC(body->GetID())))
 			ToJph(bi)->ActivateBody(body->GetID());
@@ -1378,8 +1423,22 @@ bool JPC_Constraint_GetEnabled(const JPC_Constraint *constraint) { return ToJph(
 void JPC_Constraint_SetEnabled(JPC_Constraint *constraint, bool enabled) { ToJph(constraint)->SetEnabled(enabled); }
 uint64_t JPC_Constraint_GetUserData(const JPC_Constraint *constraint) { return ToJph(constraint)->GetUserData(); }
 void JPC_Constraint_SetUserData(JPC_Constraint *constraint, uint64_t user_data) { ToJph(constraint)->SetUserData(user_data); }
-JPC_BodyID JPC_Constraint_GetBody1(const JPC_Constraint *constraint) { return ToC(static_cast<const TwoBodyConstraint *>(ToJph(constraint))->GetBody1()->GetID()); }
-JPC_BodyID JPC_Constraint_GetBody2(const JPC_Constraint *constraint) { return ToC(static_cast<const TwoBodyConstraint *>(ToJph(constraint))->GetBody2()->GetID()); }
+// Vehicles are not two body constraints: report the vehicle body as body 2 and the world as body 1
+JPC_BodyID JPC_Constraint_GetBody1(const JPC_Constraint *constraint)
+{
+	const Constraint *c = ToJph(constraint);
+	if (c->GetSubType() == EConstraintSubType::Vehicle)
+		return JPC_BODY_ID_INVALID;
+	return ToC(static_cast<const TwoBodyConstraint *>(c)->GetBody1()->GetID());
+}
+
+JPC_BodyID JPC_Constraint_GetBody2(const JPC_Constraint *constraint)
+{
+	const Constraint *c = ToJph(constraint);
+	if (c->GetSubType() == EConstraintSubType::Vehicle)
+		return ToC(static_cast<const VehicleConstraint *>(c)->GetVehicleBody()->GetID());
+	return ToC(static_cast<const TwoBodyConstraint *>(c)->GetBody2()->GetID());
+}
 
 template <class T, EConstraintSubType SubType>
 static T *As(JPC_Constraint *inConstraint)
@@ -1679,12 +1738,453 @@ struct JPC_StepListener final : public PhysicsStepListener
 JPC_StepListener *JPC_PhysicsSystem_AddStepListener(JPC_PhysicsSystem *system, JPC_StepListenerFn fn, void *user_data)
 {
 	JPC_StepListener *listener = new JPC_StepListener(system, fn, user_data);
-	system->mSystem.AddStepListener(listener);
+	system->AddStepListener(listener);
 	return listener;
 }
 
 void JPC_PhysicsSystem_RemoveStepListener(JPC_PhysicsSystem *system, JPC_StepListener *listener)
 {
-	system->mSystem.RemoveStepListener(listener);
+	system->RemoveStepListener(listener);
 	delete listener;
+}
+
+// ---------------------------------------------------------------------------
+// Query settings
+// ---------------------------------------------------------------------------
+
+void JPC_CollideShapeSettings_SetDefault(JPC_CollideShapeSettings *out)
+{
+	CollideShapeSettings s;
+	out->max_separation_distance = s.mMaxSeparationDistance;
+	out->back_face_mode = (JPC_BackFaceMode)s.mBackFaceMode;
+	out->active_edge_mode = (JPC_ActiveEdgeMode)s.mActiveEdgeMode;
+	out->active_edge_movement_direction = ToC(s.mActiveEdgeMovementDirection);
+	out->collision_tolerance = s.mCollisionTolerance;
+	out->penetration_tolerance = s.mPenetrationTolerance;
+}
+
+void JPC_ShapeCastSettings_SetDefault(JPC_ShapeCastSettings *out)
+{
+	ShapeCastSettings s;
+	out->back_face_mode_triangles = (JPC_BackFaceMode)s.mBackFaceModeTriangles;
+	out->back_face_mode_convex = (JPC_BackFaceMode)s.mBackFaceModeConvex;
+	out->use_shrunken_shape_and_convex_radius = s.mUseShrunkenShapeAndConvexRadius;
+	out->return_deepest_point = s.mReturnDeepestPoint;
+	out->active_edge_mode = (JPC_ActiveEdgeMode)s.mActiveEdgeMode;
+	out->active_edge_movement_direction = ToC(s.mActiveEdgeMovementDirection);
+	out->collision_tolerance = s.mCollisionTolerance;
+	out->penetration_tolerance = s.mPenetrationTolerance;
+}
+
+static RayCastSettings ToJph(const JPC_RayCastSettings *in)
+{
+	RayCastSettings s;
+	if (in != nullptr)
+	{
+		s.mBackFaceModeTriangles = (EBackFaceMode)in->back_face_mode_triangles;
+		s.mBackFaceModeConvex = (EBackFaceMode)in->back_face_mode_convex;
+		s.mTreatConvexAsSolid = in->treat_convex_as_solid;
+	}
+	return s;
+}
+
+bool JPC_PhysicsSystem_CastRayWithSettings(const JPC_PhysicsSystem *system, JPC_RVec3 origin, JPC_Vec3 direction, const JPC_RayCastSettings *settings,
+										   const JPC_QueryFilter *filter, JPC_RayCastHit *out_hit)
+{
+	RRayCast ray { ToJph(origin), ToJph(direction) };
+	QueryFilters filters(*system, filter);
+	ClosestRayCollector collector(ray);
+	system->mSystem.GetNarrowPhaseQuery().CastRay(ray, ToJph(settings), collector, filters.mBroadPhase, filters.mObjectLayer, filters.mBody);
+	if (collector.mHasHit && out_hit != nullptr)
+	{
+		*out_hit = collector.mHit;
+		if (out_hit->material != nullptr)
+			ToJph(out_hit->material)->AddRef();
+	}
+	return collector.mHasHit;
+}
+
+void JPC_PhysicsSystem_CollideShapeWithSettings(const JPC_PhysicsSystem *system, const JPC_Shape *shape, JPC_Vec3 scale, const JPC_RMat44 *transform,
+												const JPC_CollideShapeSettings *in, const JPC_QueryFilter *filter, JPC_ShapeCollectorFn collector_fn, void *user_data)
+{
+	CollideShapeSettings settings;
+	if (in != nullptr)
+	{
+		settings.mMaxSeparationDistance = in->max_separation_distance;
+		settings.mBackFaceMode = (EBackFaceMode)in->back_face_mode;
+		settings.mActiveEdgeMode = (EActiveEdgeMode)in->active_edge_mode;
+		settings.mActiveEdgeMovementDirection = ToJph(in->active_edge_movement_direction);
+		settings.mCollisionTolerance = in->collision_tolerance;
+		settings.mPenetrationTolerance = in->penetration_tolerance;
+	}
+	QueryFilters filters(*system, filter);
+	CallbackCollideShapeCollector collector(collector_fn, user_data);
+	system->mSystem.GetNarrowPhaseQuery().CollideShape(ToJph(shape), ToJph(scale), ToJph(*transform), settings, RVec3::sZero(), collector,
+													   filters.mBroadPhase, filters.mObjectLayer, filters.mBody);
+}
+
+void JPC_PhysicsSystem_CastShapeWithSettings(const JPC_PhysicsSystem *system, const JPC_Shape *shape, JPC_Vec3 scale, const JPC_RMat44 *transform, JPC_Vec3 direction,
+											 const JPC_ShapeCastSettings *in, const JPC_QueryFilter *filter, JPC_ShapeCollectorFn collector_fn, void *user_data)
+{
+	RShapeCast cast(ToJph(shape), ToJph(scale), ToJph(*transform), ToJph(direction));
+	ShapeCastSettings settings;
+	if (in != nullptr)
+	{
+		settings.mBackFaceModeTriangles = (EBackFaceMode)in->back_face_mode_triangles;
+		settings.mBackFaceModeConvex = (EBackFaceMode)in->back_face_mode_convex;
+		settings.mUseShrunkenShapeAndConvexRadius = in->use_shrunken_shape_and_convex_radius;
+		settings.mReturnDeepestPoint = in->return_deepest_point;
+		settings.mActiveEdgeMode = (EActiveEdgeMode)in->active_edge_mode;
+		settings.mActiveEdgeMovementDirection = ToJph(in->active_edge_movement_direction);
+		settings.mCollisionTolerance = in->collision_tolerance;
+		settings.mPenetrationTolerance = in->penetration_tolerance;
+	}
+	QueryFilters filters(*system, filter);
+	CallbackCastShapeCollector collector(collector_fn, user_data);
+	system->mSystem.GetNarrowPhaseQuery().CastShape(cast, settings, RVec3::sZero(), collector, filters.mBroadPhase, filters.mObjectLayer, filters.mBody);
+}
+
+// ---------------------------------------------------------------------------
+// Broad phase queries
+// ---------------------------------------------------------------------------
+
+namespace {
+
+class BroadPhaseBodyCollector final : public CollideShapeBodyCollector
+{
+public:
+	BroadPhaseBodyCollector(const QueryBodyFilter &inFilter, JPC_BodyCollectorFn inFn, void *inUserData) : mFilter(inFilter), mFn(inFn), mUserData(inUserData) { }
+
+	virtual void			AddHit(const BodyID &inResult) override
+	{
+		// The broad phase knows nothing about body filters, so apply ours here
+		if (mFilter.ShouldCollide(inResult) && !mFn(mUserData, ToC(inResult)))
+			ForceEarlyOut();
+	}
+
+private:
+	const QueryBodyFilter &	mFilter;
+	JPC_BodyCollectorFn		mFn;
+	void *					mUserData;
+};
+
+template <class Base>
+class BroadPhaseCastCollector final : public Base
+{
+public:
+	BroadPhaseCastCollector(const QueryBodyFilter &inFilter, JPC_BroadPhaseCastCollectorFn inFn, void *inUserData) : mFilter(inFilter), mFn(inFn), mUserData(inUserData) { }
+
+	virtual void			AddHit(const BroadPhaseCastResult &inResult) override
+	{
+		if (!mFilter.ShouldCollide(inResult.mBodyID))
+			return;
+		JPC_BroadPhaseCastHit hit { ToC(inResult.mBodyID), inResult.mFraction };
+		if (!mFn(mUserData, &hit))
+			this->ForceEarlyOut();
+	}
+
+private:
+	const QueryBodyFilter &	mFilter;
+	JPC_BroadPhaseCastCollectorFn mFn;
+	void *					mUserData;
+};
+
+} // namespace
+
+#define JPC_BROAD_PHASE_QUERY(call)																	\
+	QueryFilters filters(*system, filter);															\
+	BroadPhaseBodyCollector collector(filters.mBody, collector_fn, user_data);						\
+	system->mSystem.GetBroadPhaseQuery().call
+
+void JPC_PhysicsSystem_BroadPhaseCollideAABox(const JPC_PhysicsSystem *system, const JPC_AABox *box, const JPC_QueryFilter *filter, JPC_BodyCollectorFn collector_fn, void *user_data)
+{
+	JPC_BROAD_PHASE_QUERY(CollideAABox(AABox(ToJph(box->min), ToJph(box->max)), collector, filters.mBroadPhase, filters.mObjectLayer));
+}
+
+void JPC_PhysicsSystem_BroadPhaseCollideSphere(const JPC_PhysicsSystem *system, JPC_Vec3 center, float radius, const JPC_QueryFilter *filter, JPC_BodyCollectorFn collector_fn, void *user_data)
+{
+	JPC_BROAD_PHASE_QUERY(CollideSphere(ToJph(center), radius, collector, filters.mBroadPhase, filters.mObjectLayer));
+}
+
+void JPC_PhysicsSystem_BroadPhaseCollidePoint(const JPC_PhysicsSystem *system, JPC_Vec3 point, const JPC_QueryFilter *filter, JPC_BodyCollectorFn collector_fn, void *user_data)
+{
+	JPC_BROAD_PHASE_QUERY(CollidePoint(ToJph(point), collector, filters.mBroadPhase, filters.mObjectLayer));
+}
+
+void JPC_PhysicsSystem_BroadPhaseCollideOrientedBox(const JPC_PhysicsSystem *system, const JPC_Mat44 *orientation, JPC_Vec3 half_extent, const JPC_QueryFilter *filter,
+													JPC_BodyCollectorFn collector_fn, void *user_data)
+{
+	JPC_BROAD_PHASE_QUERY(CollideOrientedBox(OrientedBox(ToJph(*orientation), ToJph(half_extent)), collector, filters.mBroadPhase, filters.mObjectLayer));
+}
+
+void JPC_PhysicsSystem_BroadPhaseCastRay(const JPC_PhysicsSystem *system, JPC_Vec3 origin, JPC_Vec3 direction, const JPC_QueryFilter *filter,
+										 JPC_BroadPhaseCastCollectorFn collector_fn, void *user_data)
+{
+	QueryFilters filters(*system, filter);
+	BroadPhaseCastCollector<RayCastBodyCollector> collector(filters.mBody, collector_fn, user_data);
+	system->mSystem.GetBroadPhaseQuery().CastRay(RayCast { ToJph(origin), ToJph(direction) }, collector, filters.mBroadPhase, filters.mObjectLayer);
+}
+
+void JPC_PhysicsSystem_BroadPhaseCastAABox(const JPC_PhysicsSystem *system, const JPC_AABox *box, JPC_Vec3 direction, const JPC_QueryFilter *filter,
+										   JPC_BroadPhaseCastCollectorFn collector_fn, void *user_data)
+{
+	QueryFilters filters(*system, filter);
+	BroadPhaseCastCollector<CastShapeBodyCollector> collector(filters.mBody, collector_fn, user_data);
+	AABoxCast cast { AABox(ToJph(box->min), ToJph(box->max)), ToJph(direction) };
+	system->mSystem.GetBroadPhaseQuery().CastAABox(cast, collector, filters.mBroadPhase, filters.mObjectLayer);
+}
+
+// ---------------------------------------------------------------------------
+// Height field materials
+// ---------------------------------------------------------------------------
+
+JPC_Shape *JPC_HeightFieldShape_CreateWithMaterials(const float *samples, JPC_Vec3 offset, JPC_Vec3 scale, uint32_t sample_count, const uint8_t *material_indices,
+													const JPC_PhysicsMaterial *const *materials, uint32_t num_materials)
+{
+	if (num_materials == 0 || num_materials > 256 || sample_count < 2)
+	{
+		JPC_SetError("Height field needs 1 to 256 materials and a sample count of at least 2");
+		return nullptr;
+	}
+	PhysicsMaterialList material_list;
+	for (uint32_t i = 0; i < num_materials; ++i)
+	{
+		if (materials[i] == nullptr)
+		{
+			JPC_SetError("Height field material is null");
+			return nullptr;
+		}
+		material_list.push_back(ToJph(materials[i]));
+	}
+	uint32_t num_cells = (sample_count - 1) * (sample_count - 1);
+	for (uint32_t i = 0; i < num_cells; ++i)
+		if (material_indices[i] >= num_materials)
+		{
+			JPC_SetError("Height field material index out of range");
+			return nullptr;
+		}
+	HeightFieldShapeSettings settings(samples, ToJph(offset), ToJph(scale), sample_count, material_indices, material_list);
+	settings.SetEmbedded();
+	ShapeSettings::ShapeResult result = settings.Create();
+	if (result.HasError())
+	{
+		JPC_SetError(result.GetError().c_str());
+		return nullptr;
+	}
+	Shape *shape = result.Get().GetPtr();
+	shape->AddRef();
+	return ToC(shape);
+}
+
+// ---------------------------------------------------------------------------
+// Snapshots
+// ---------------------------------------------------------------------------
+
+struct JPC_PhysicsSnapshot
+{
+	JPH_OVERRIDE_NEW_DELETE
+
+	std::string				mData;
+	// Null for snapshots made from raw bytes, which are restored without checks
+	const JPC_PhysicsSystem *mSystem = nullptr;
+	uint64					mStructureVersion = 0;
+};
+
+JPC_PhysicsSnapshot *JPC_PhysicsSystem_SaveState(const JPC_PhysicsSystem *system, JPC_StateParts parts)
+{
+	StateRecorderImpl recorder;
+	system->mSystem.SaveState(recorder, EStateRecorderState(parts & JPC_STATE_PARTS_ALL));
+	JPC_PhysicsSnapshot *snapshot = new JPC_PhysicsSnapshot;
+	snapshot->mData = recorder.GetData();
+	snapshot->mSystem = system;
+	snapshot->mStructureVersion = system->mStructureVersion;
+	return snapshot;
+}
+
+bool JPC_PhysicsSystem_RestoreState(JPC_PhysicsSystem *system, const JPC_PhysicsSnapshot *snapshot)
+{
+	if (snapshot->mSystem != nullptr && (snapshot->mSystem != system || snapshot->mStructureVersion != system->mStructureVersion))
+	{
+		JPC_SetError("Snapshot was taken from a different system, or bodies, shapes or constraints changed since");
+		return false;
+	}
+	StateRecorderImpl recorder;
+	recorder.WriteBytes(snapshot->mData.data(), snapshot->mData.size());
+	recorder.Rewind();
+	if (!system->mSystem.RestoreState(recorder))
+	{
+		JPC_SetError("Snapshot does not match the world");
+		return false;
+	}
+	return true;
+}
+
+JPC_PhysicsSnapshot *JPC_PhysicsSnapshot_CreateFromData(const void *data, size_t size)
+{
+	JPC_PhysicsSnapshot *snapshot = new JPC_PhysicsSnapshot;
+	snapshot->mData.assign(static_cast<const char *>(data), size);
+	return snapshot;
+}
+
+const void *JPC_PhysicsSnapshot_GetData(const JPC_PhysicsSnapshot *snapshot) { return snapshot->mData.data(); }
+size_t JPC_PhysicsSnapshot_GetSize(const JPC_PhysicsSnapshot *snapshot) { return snapshot->mData.size(); }
+void JPC_PhysicsSnapshot_Destroy(JPC_PhysicsSnapshot *snapshot) { delete snapshot; }
+
+// ---------------------------------------------------------------------------
+// Gear, rack and pinion, pulley and path constraints
+// ---------------------------------------------------------------------------
+
+void JPC_GearConstraintSettings_SetDefault(JPC_GearConstraintSettings *out)
+{
+	GearConstraintSettings s;
+	out->base = ToC(s);
+	out->space = (JPC_ConstraintSpace)s.mSpace;
+	out->hinge_axis1 = ToC(s.mHingeAxis1);
+	out->hinge_axis2 = ToC(s.mHingeAxis2);
+	out->ratio = s.mRatio;
+}
+
+void JPC_RackAndPinionConstraintSettings_SetDefault(JPC_RackAndPinionConstraintSettings *out)
+{
+	RackAndPinionConstraintSettings s;
+	out->base = ToC(s);
+	out->space = (JPC_ConstraintSpace)s.mSpace;
+	out->hinge_axis = ToC(s.mHingeAxis);
+	out->slider_axis = ToC(s.mSliderAxis);
+	out->ratio = s.mRatio;
+}
+
+void JPC_PulleyConstraintSettings_SetDefault(JPC_PulleyConstraintSettings *out)
+{
+	PulleyConstraintSettings s;
+	out->base = ToC(s);
+	out->space = (JPC_ConstraintSpace)s.mSpace;
+	out->body_point1 = ToC(s.mBodyPoint1);
+	out->fixed_point1 = ToC(s.mFixedPoint1);
+	out->body_point2 = ToC(s.mBodyPoint2);
+	out->fixed_point2 = ToC(s.mFixedPoint2);
+	out->ratio = s.mRatio;
+	out->min_length = s.mMinLength;
+	out->max_length = s.mMaxLength;
+}
+
+void JPC_PathConstraintSettings_SetDefault(JPC_PathConstraintSettings *out)
+{
+	PathConstraintSettings s;
+	out->base = ToC(s);
+	out->path = nullptr;
+	out->path_position = ToC(s.mPathPosition);
+	out->path_rotation = ToC(s.mPathRotation);
+	out->path_fraction = s.mPathFraction;
+	out->max_friction_force = s.mMaxFrictionForce;
+	out->position_motor_settings = ToC(s.mPositionMotorSettings);
+	out->rotation_constraint_type = (JPC_PathRotationConstraintType)s.mRotationConstraintType;
+}
+
+JPC_Constraint *JPC_PhysicsSystem_CreateGearConstraint(JPC_PhysicsSystem *system, const JPC_GearConstraintSettings *in, JPC_BodyID body1, JPC_BodyID body2)
+{
+	GearConstraintSettings s;
+	ToJph(in->base, s);
+	s.mSpace = (EConstraintSpace)in->space;
+	s.mHingeAxis1 = ToJph(in->hinge_axis1);
+	s.mHingeAxis2 = ToJph(in->hinge_axis2);
+	s.mRatio = in->ratio;
+	return CreateConstraint(system, s, body1, body2);
+}
+
+JPC_Constraint *JPC_PhysicsSystem_CreateRackAndPinionConstraint(JPC_PhysicsSystem *system, const JPC_RackAndPinionConstraintSettings *in, JPC_BodyID body1, JPC_BodyID body2)
+{
+	RackAndPinionConstraintSettings s;
+	ToJph(in->base, s);
+	s.mSpace = (EConstraintSpace)in->space;
+	s.mHingeAxis = ToJph(in->hinge_axis);
+	s.mSliderAxis = ToJph(in->slider_axis);
+	s.mRatio = in->ratio;
+	return CreateConstraint(system, s, body1, body2);
+}
+
+JPC_Constraint *JPC_PhysicsSystem_CreatePulleyConstraint(JPC_PhysicsSystem *system, const JPC_PulleyConstraintSettings *in, JPC_BodyID body1, JPC_BodyID body2)
+{
+	if (in->ratio <= 0.0f || in->min_length < 0.0f || (in->max_length >= 0.0f && in->min_length > in->max_length))
+	{
+		JPC_SetError("Pulley needs a positive ratio and 0 <= min_length <= max_length");
+		return nullptr;
+	}
+	PulleyConstraintSettings s;
+	ToJph(in->base, s);
+	s.mSpace = (EConstraintSpace)in->space;
+	s.mBodyPoint1 = ToJph(in->body_point1);
+	s.mFixedPoint1 = ToJph(in->fixed_point1);
+	s.mBodyPoint2 = ToJph(in->body_point2);
+	s.mFixedPoint2 = ToJph(in->fixed_point2);
+	s.mRatio = in->ratio;
+	s.mMinLength = in->min_length;
+	s.mMaxLength = in->max_length;
+	return CreateConstraint(system, s, body1, body2);
+}
+
+static inline const PathConstraintPath *ToJph(const JPC_PathConstraintPath *p) { return reinterpret_cast<const PathConstraintPath *>(p); }
+
+JPC_PathConstraintPath *JPC_PathConstraintPathHermite_Create(const JPC_PathPoint *points, uint32_t num_points, bool looping)
+{
+	if (num_points < 2)
+	{
+		JPC_SetError("A path needs at least 2 points");
+		return nullptr;
+	}
+	PathConstraintPathHermite *path = new PathConstraintPathHermite;
+	for (uint32_t i = 0; i < num_points; ++i)
+		path->AddPoint(ToJph(points[i].position), ToJph(points[i].tangent), ToJph(points[i].normal));
+	path->SetIsLooping(looping);
+	path->AddRef();
+	return reinterpret_cast<JPC_PathConstraintPath *>(static_cast<PathConstraintPath *>(path));
+}
+
+void JPC_PathConstraintPath_AddRef(const JPC_PathConstraintPath *path) { ToJph(path)->AddRef(); }
+void JPC_PathConstraintPath_Release(const JPC_PathConstraintPath *path) { ToJph(path)->Release(); }
+float JPC_PathConstraintPath_GetMaxFraction(const JPC_PathConstraintPath *path) { return ToJph(path)->GetPathMaxFraction(); }
+
+JPC_Constraint *JPC_PhysicsSystem_CreatePathConstraint(JPC_PhysicsSystem *system, const JPC_PathConstraintSettings *in, JPC_BodyID body1, JPC_BodyID body2)
+{
+	if (in->path == nullptr)
+	{
+		JPC_SetError("Path constraint needs a path");
+		return nullptr;
+	}
+	PathConstraintSettings s;
+	ToJph(in->base, s);
+	s.mPath = ToJph(in->path);
+	s.mPathPosition = ToJph(in->path_position);
+	s.mPathRotation = ToJph(in->path_rotation).Normalized();
+	s.mPathFraction = in->path_fraction;
+	s.mMaxFrictionForce = in->max_friction_force;
+	s.mPositionMotorSettings = ToJph(in->position_motor_settings);
+	s.mRotationConstraintType = (EPathRotationConstraintType)in->rotation_constraint_type;
+	return CreateConstraint(system, s, body1, body2);
+}
+
+#define JPC_PULLEY(c) As<PulleyConstraint, EConstraintSubType::Pulley>(c)
+#define JPC_PATH(c) As<PathConstraint, EConstraintSubType::Path>(c)
+
+void JPC_PulleyConstraint_SetLength(JPC_Constraint *constraint, float min_length, float max_length)
+{
+	if (auto c = JPC_PULLEY(constraint); c != nullptr && min_length >= 0.0f && min_length <= max_length)
+		c->SetLength(min_length, max_length);
+}
+
+float JPC_PulleyConstraint_GetCurrentLength(const JPC_Constraint *constraint) { auto c = JPC_PULLEY(constraint); return c ? c->GetCurrentLength() : 0.0f; }
+float JPC_PathConstraint_GetPathFraction(const JPC_Constraint *constraint) { auto c = JPC_PATH(constraint); return c ? c->GetPathFraction() : 0.0f; }
+void JPC_PathConstraint_SetMaxFrictionForce(JPC_Constraint *constraint, float force) { if (auto c = JPC_PATH(constraint)) c->SetMaxFrictionForce(force); }
+void JPC_PathConstraint_SetPositionMotorState(JPC_Constraint *constraint, JPC_MotorState state) { if (auto c = JPC_PATH(constraint)) c->SetPositionMotorState((EMotorState)state); }
+void JPC_PathConstraint_SetTargetVelocity(JPC_Constraint *constraint, float velocity) { if (auto c = JPC_PATH(constraint)) c->SetTargetVelocity(velocity); }
+
+void JPC_PathConstraint_SetTargetPathFraction(JPC_Constraint *constraint, float fraction)
+{
+	PathConstraint *c = JPC_PATH(constraint);
+	if (c == nullptr)
+		return;
+	const PathConstraintPath *path = c->GetPath();
+	if (!path->IsLooping())
+		fraction = Clamp(fraction, 0.0f, path->GetPathMaxFraction());
+	c->SetTargetPathFraction(fraction);
 }

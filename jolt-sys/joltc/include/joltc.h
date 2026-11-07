@@ -176,6 +176,33 @@ typedef enum JPC_SixDOFAxis {
     JPC_SIX_DOF_AXIS_NUM = 6,
 } JPC_SixDOFAxis;
 
+typedef enum JPC_ActiveEdgeMode {
+    JPC_ACTIVE_EDGE_MODE_COLLIDE_ONLY_WITH_ACTIVE = 0,
+    JPC_ACTIVE_EDGE_MODE_COLLIDE_WITH_ALL = 1,
+} JPC_ActiveEdgeMode;
+
+typedef enum JPC_StateParts {
+    JPC_STATE_PARTS_GLOBAL = 1,
+    JPC_STATE_PARTS_BODIES = 2,
+    JPC_STATE_PARTS_CONTACTS = 4,
+    JPC_STATE_PARTS_CONSTRAINTS = 8,
+    JPC_STATE_PARTS_ALL = 15,
+} JPC_StateParts;
+
+typedef enum JPC_PathRotationConstraintType {
+    JPC_PATH_ROTATION_FREE = 0,
+    JPC_PATH_ROTATION_CONSTRAIN_AROUND_TANGENT = 1,
+    JPC_PATH_ROTATION_CONSTRAIN_AROUND_NORMAL = 2,
+    JPC_PATH_ROTATION_CONSTRAIN_AROUND_BINORMAL = 3,
+    JPC_PATH_ROTATION_CONSTRAIN_TO_PATH = 4,
+    JPC_PATH_ROTATION_FULLY_CONSTRAINED = 5,
+} JPC_PathRotationConstraintType;
+
+typedef enum JPC_TransmissionMode {
+    JPC_TRANSMISSION_MODE_AUTO = 0,
+    JPC_TRANSMISSION_MODE_MANUAL = 1,
+} JPC_TransmissionMode;
+
 typedef enum JPC_GroundState {
     JPC_GROUND_STATE_ON_GROUND = 0,
     JPC_GROUND_STATE_ON_STEEP_GROUND = 1,
@@ -207,6 +234,9 @@ typedef struct JPC_StepListener JPC_StepListener;
 typedef struct JPC_CharacterVirtual JPC_CharacterVirtual;
 typedef struct JPC_CharacterVsCharacterCollision JPC_CharacterVsCharacterCollision;
 typedef struct JPC_Character JPC_Character;
+typedef struct JPC_PhysicsSnapshot JPC_PhysicsSnapshot;
+typedef struct JPC_PathConstraintPath JPC_PathConstraintPath;
+typedef struct JPC_VehicleCollisionTester JPC_VehicleCollisionTester;
 
 /* ------------------------------------------------------------------------- */
 /* Global setup                                                               */
@@ -267,6 +297,9 @@ JPC_API JPC_Shape *JPC_ConvexHullShape_Create(const JPC_Vec3 *points, uint32_t n
 JPC_API JPC_Shape *JPC_MeshShape_Create(const JPC_Vec3 *vertices, uint32_t num_vertices, const uint32_t *indices, uint32_t num_triangles);
 /* samples holds sample_count * sample_count heights. */
 JPC_API JPC_Shape *JPC_HeightFieldShape_Create(const float *samples, JPC_Vec3 offset, JPC_Vec3 scale, uint32_t sample_count);
+/* material_indices holds (sample_count - 1)^2 entries indexing materials (at most 256). */
+JPC_API JPC_Shape *JPC_HeightFieldShape_CreateWithMaterials(const float *samples, JPC_Vec3 offset, JPC_Vec3 scale, uint32_t sample_count,
+                                                            const uint8_t *material_indices, const JPC_PhysicsMaterial *const *materials, uint32_t num_materials);
 /* Infinite-ish plane: normal must be normalized, distance is the plane constant. */
 JPC_API JPC_Shape *JPC_PlaneShape_Create(JPC_Vec3 normal, float distance, float half_extent);
 JPC_API JPC_Shape *JPC_EmptyShape_Create(JPC_Vec3 center_of_mass);
@@ -737,10 +770,86 @@ JPC_API void JPC_PhysicsSystem_CollidePoint(const JPC_PhysicsSystem *system, JPC
 JPC_API void JPC_PhysicsSystem_CollideShape(const JPC_PhysicsSystem *system, const JPC_Shape *shape, JPC_Vec3 scale,
                                             const JPC_RMat44 *transform, float max_separation_distance,
                                             const JPC_QueryFilter *filter, JPC_ShapeCollectorFn collector, void *user_data);
+typedef struct JPC_CollideShapeSettings {
+    float max_separation_distance;
+    JPC_BackFaceMode back_face_mode;
+    JPC_ActiveEdgeMode active_edge_mode;
+    JPC_Vec3 active_edge_movement_direction;
+    float collision_tolerance;
+    float penetration_tolerance;
+} JPC_CollideShapeSettings;
+
+typedef struct JPC_ShapeCastSettings {
+    JPC_BackFaceMode back_face_mode_triangles;
+    JPC_BackFaceMode back_face_mode_convex;
+    bool use_shrunken_shape_and_convex_radius;
+    bool return_deepest_point;
+    JPC_ActiveEdgeMode active_edge_mode;
+    JPC_Vec3 active_edge_movement_direction;
+    float collision_tolerance;
+    float penetration_tolerance;
+} JPC_ShapeCastSettings;
+
+JPC_API void JPC_CollideShapeSettings_SetDefault(JPC_CollideShapeSettings *settings);
+JPC_API void JPC_ShapeCastSettings_SetDefault(JPC_ShapeCastSettings *settings);
+
+/* Closest hit with explicit settings; otherwise like JPC_PhysicsSystem_CastRay (out_hit->material is owned). */
+JPC_API bool JPC_PhysicsSystem_CastRayWithSettings(const JPC_PhysicsSystem *system, JPC_RVec3 origin, JPC_Vec3 direction,
+                                                   const JPC_RayCastSettings *settings, const JPC_QueryFilter *filter, JPC_RayCastHit *out_hit);
+JPC_API void JPC_PhysicsSystem_CollideShapeWithSettings(const JPC_PhysicsSystem *system, const JPC_Shape *shape, JPC_Vec3 scale,
+                                                        const JPC_RMat44 *transform, const JPC_CollideShapeSettings *settings,
+                                                        const JPC_QueryFilter *filter, JPC_ShapeCollectorFn collector, void *user_data);
+JPC_API void JPC_PhysicsSystem_CastShapeWithSettings(const JPC_PhysicsSystem *system, const JPC_Shape *shape, JPC_Vec3 scale,
+                                                     const JPC_RMat44 *transform, JPC_Vec3 direction, const JPC_ShapeCastSettings *settings,
+                                                     const JPC_QueryFilter *filter, JPC_ShapeCollectorFn collector, void *user_data);
+
+/* Broad phase queries test against body bounding boxes only: cheap, but hits may not actually touch the shapes.
+ * Same threading rules as the other collectors (called under the broad phase query lock). */
+typedef bool (*JPC_BodyCollectorFn)(void *user_data, JPC_BodyID body_id);
+typedef struct JPC_BroadPhaseCastHit {
+    JPC_BodyID body_id;
+    float fraction;
+} JPC_BroadPhaseCastHit;
+typedef bool (*JPC_BroadPhaseCastCollectorFn)(void *user_data, const JPC_BroadPhaseCastHit *hit);
+
+JPC_API void JPC_PhysicsSystem_BroadPhaseCollideAABox(const JPC_PhysicsSystem *system, const JPC_AABox *box, const JPC_QueryFilter *filter,
+                                                      JPC_BodyCollectorFn collector, void *user_data);
+JPC_API void JPC_PhysicsSystem_BroadPhaseCollideSphere(const JPC_PhysicsSystem *system, JPC_Vec3 center, float radius, const JPC_QueryFilter *filter,
+                                                       JPC_BodyCollectorFn collector, void *user_data);
+JPC_API void JPC_PhysicsSystem_BroadPhaseCollidePoint(const JPC_PhysicsSystem *system, JPC_Vec3 point, const JPC_QueryFilter *filter,
+                                                      JPC_BodyCollectorFn collector, void *user_data);
+/* orientation's rotation and translation place a box of half_extent. */
+JPC_API void JPC_PhysicsSystem_BroadPhaseCollideOrientedBox(const JPC_PhysicsSystem *system, const JPC_Mat44 *orientation, JPC_Vec3 half_extent,
+                                                            const JPC_QueryFilter *filter, JPC_BodyCollectorFn collector, void *user_data);
+JPC_API void JPC_PhysicsSystem_BroadPhaseCastRay(const JPC_PhysicsSystem *system, JPC_Vec3 origin, JPC_Vec3 direction, const JPC_QueryFilter *filter,
+                                                 JPC_BroadPhaseCastCollectorFn collector, void *user_data);
+JPC_API void JPC_PhysicsSystem_BroadPhaseCastAABox(const JPC_PhysicsSystem *system, const JPC_AABox *box, JPC_Vec3 direction, const JPC_QueryFilter *filter,
+                                                   JPC_BroadPhaseCastCollectorFn collector, void *user_data);
+
 /* Sweeps the shape from transform along direction. */
 JPC_API void JPC_PhysicsSystem_CastShape(const JPC_PhysicsSystem *system, const JPC_Shape *shape, JPC_Vec3 scale,
                                          const JPC_RMat44 *transform, JPC_Vec3 direction,
                                          const JPC_QueryFilter *filter, JPC_ShapeCollectorFn collector, void *user_data);
+
+/* ------------------------------------------------------------------------- */
+/* Snapshots                                                                  */
+/*                                                                            */
+/* Jolt restores state without validating it against the world. A snapshot   */
+/* taken with JPC_PhysicsSystem_SaveState can only be restored onto the same  */
+/* system while no body, shape, motion type or constraint was added, removed */
+/* or changed since; otherwise restoring fails. Snapshots made from raw bytes */
+/* skip that check, so only feed them data saved from an identical world.    */
+/* Character state is not included.                                           */
+/* ------------------------------------------------------------------------- */
+
+JPC_API JPC_PhysicsSnapshot *JPC_PhysicsSystem_SaveState(const JPC_PhysicsSystem *system, JPC_StateParts parts);
+/* Must not run concurrently with anything else using the system. Returns false (with an error) on mismatch;
+ * a failure part way through may leave the world partly restored. */
+JPC_API bool JPC_PhysicsSystem_RestoreState(JPC_PhysicsSystem *system, const JPC_PhysicsSnapshot *snapshot);
+JPC_API JPC_PhysicsSnapshot *JPC_PhysicsSnapshot_CreateFromData(const void *data, size_t size);
+JPC_API const void *JPC_PhysicsSnapshot_GetData(const JPC_PhysicsSnapshot *snapshot);
+JPC_API size_t JPC_PhysicsSnapshot_GetSize(const JPC_PhysicsSnapshot *snapshot);
+JPC_API void JPC_PhysicsSnapshot_Destroy(JPC_PhysicsSnapshot *snapshot);
 
 /* ------------------------------------------------------------------------- */
 /* Constraints                                                                */
@@ -881,7 +990,68 @@ typedef struct JPC_SixDOFConstraintSettings {
     JPC_MotorSettings motor_settings[6];
 } JPC_SixDOFConstraintSettings;
 
+typedef struct JPC_GearConstraintSettings {
+    JPC_ConstraintSettings base;
+    JPC_ConstraintSpace space;
+    JPC_Vec3 hinge_axis1;
+    JPC_Vec3 hinge_axis2;
+    /* Teeth of gear 2 / teeth of gear 1: body 2 turns 1 / ratio as fast as body 1, in the opposite direction. */
+    float ratio;
+} JPC_GearConstraintSettings;
+
+typedef struct JPC_RackAndPinionConstraintSettings {
+    JPC_ConstraintSettings base;
+    JPC_ConstraintSpace space;
+    /* Body 1 is the pinion (rotating), body 2 the rack (sliding). */
+    JPC_Vec3 hinge_axis;
+    JPC_Vec3 slider_axis;
+    /* Pinion rotation (radians) per meter of rack travel. */
+    float ratio;
+} JPC_RackAndPinionConstraintSettings;
+
+typedef struct JPC_PulleyConstraintSettings {
+    JPC_ConstraintSettings base;
+    JPC_ConstraintSpace space;
+    JPC_RVec3 body_point1;
+    JPC_RVec3 fixed_point1;
+    JPC_RVec3 body_point2;
+    JPC_RVec3 fixed_point2;
+    float ratio;
+    /* Negative max_length means "the initial length". */
+    float min_length;
+    float max_length;
+} JPC_PulleyConstraintSettings;
+
+typedef struct JPC_PathConstraintSettings {
+    JPC_ConstraintSettings base;
+    /* Borrowed; the constraint keeps its own reference. Required. */
+    const JPC_PathConstraintPath *path;
+    /* Placement of the path relative to body 1. */
+    JPC_Vec3 path_position;
+    JPC_Quat path_rotation;
+    float path_fraction;
+    float max_friction_force;
+    JPC_MotorSettings position_motor_settings;
+    JPC_PathRotationConstraintType rotation_constraint_type;
+} JPC_PathConstraintSettings;
+
+typedef struct JPC_PathPoint {
+    JPC_Vec3 position;
+    JPC_Vec3 tangent;
+    JPC_Vec3 normal;
+} JPC_PathPoint;
+
+/* A Hermite spline through at least 2 points. Reference counted and immutable. */
+JPC_API JPC_PathConstraintPath *JPC_PathConstraintPathHermite_Create(const JPC_PathPoint *points, uint32_t num_points, bool looping);
+JPC_API void JPC_PathConstraintPath_AddRef(const JPC_PathConstraintPath *path);
+JPC_API void JPC_PathConstraintPath_Release(const JPC_PathConstraintPath *path);
+JPC_API float JPC_PathConstraintPath_GetMaxFraction(const JPC_PathConstraintPath *path);
+
 JPC_API void JPC_FixedConstraintSettings_SetDefault(JPC_FixedConstraintSettings *settings);
+JPC_API void JPC_GearConstraintSettings_SetDefault(JPC_GearConstraintSettings *settings);
+JPC_API void JPC_RackAndPinionConstraintSettings_SetDefault(JPC_RackAndPinionConstraintSettings *settings);
+JPC_API void JPC_PulleyConstraintSettings_SetDefault(JPC_PulleyConstraintSettings *settings);
+JPC_API void JPC_PathConstraintSettings_SetDefault(JPC_PathConstraintSettings *settings);
 JPC_API void JPC_SwingTwistConstraintSettings_SetDefault(JPC_SwingTwistConstraintSettings *settings);
 JPC_API void JPC_SixDOFConstraintSettings_SetDefault(JPC_SixDOFConstraintSettings *settings);
 JPC_API void JPC_PointConstraintSettings_SetDefault(JPC_PointConstraintSettings *settings);
@@ -900,6 +1070,10 @@ JPC_API JPC_Constraint *JPC_PhysicsSystem_CreateHingeConstraint(JPC_PhysicsSyste
 JPC_API JPC_Constraint *JPC_PhysicsSystem_CreateSliderConstraint(JPC_PhysicsSystem *system, const JPC_SliderConstraintSettings *settings, JPC_BodyID body1, JPC_BodyID body2);
 JPC_API JPC_Constraint *JPC_PhysicsSystem_CreateSwingTwistConstraint(JPC_PhysicsSystem *system, const JPC_SwingTwistConstraintSettings *settings, JPC_BodyID body1, JPC_BodyID body2);
 JPC_API JPC_Constraint *JPC_PhysicsSystem_CreateSixDOFConstraint(JPC_PhysicsSystem *system, const JPC_SixDOFConstraintSettings *settings, JPC_BodyID body1, JPC_BodyID body2);
+JPC_API JPC_Constraint *JPC_PhysicsSystem_CreateGearConstraint(JPC_PhysicsSystem *system, const JPC_GearConstraintSettings *settings, JPC_BodyID body1, JPC_BodyID body2);
+JPC_API JPC_Constraint *JPC_PhysicsSystem_CreateRackAndPinionConstraint(JPC_PhysicsSystem *system, const JPC_RackAndPinionConstraintSettings *settings, JPC_BodyID body1, JPC_BodyID body2);
+JPC_API JPC_Constraint *JPC_PhysicsSystem_CreatePulleyConstraint(JPC_PhysicsSystem *system, const JPC_PulleyConstraintSettings *settings, JPC_BodyID body1, JPC_BodyID body2);
+JPC_API JPC_Constraint *JPC_PhysicsSystem_CreatePathConstraint(JPC_PhysicsSystem *system, const JPC_PathConstraintSettings *settings, JPC_BodyID body1, JPC_BodyID body2);
 JPC_API JPC_Constraint *JPC_PhysicsSystem_CreateConeConstraint(JPC_PhysicsSystem *system, const JPC_ConeConstraintSettings *settings, JPC_BodyID body1, JPC_BodyID body2);
 /* Wakes both bodies so a newly added or modified constraint takes effect. */
 JPC_API void JPC_BodyInterface_ActivateConstraint(JPC_BodyInterface *bi, const JPC_Constraint *constraint);
@@ -932,6 +1106,15 @@ JPC_API void JPC_SliderConstraint_SetTargetPosition(JPC_Constraint *constraint, 
 JPC_API void JPC_DistanceConstraint_SetDistance(JPC_Constraint *constraint, float min_distance, float max_distance);
 JPC_API void JPC_ConeConstraint_SetHalfConeAngle(JPC_Constraint *constraint, float half_cone_angle);
 
+JPC_API void JPC_PulleyConstraint_SetLength(JPC_Constraint *constraint, float min_length, float max_length);
+JPC_API float JPC_PulleyConstraint_GetCurrentLength(const JPC_Constraint *constraint);
+JPC_API float JPC_PathConstraint_GetPathFraction(const JPC_Constraint *constraint);
+JPC_API void JPC_PathConstraint_SetMaxFrictionForce(JPC_Constraint *constraint, float force);
+JPC_API void JPC_PathConstraint_SetPositionMotorState(JPC_Constraint *constraint, JPC_MotorState state);
+JPC_API void JPC_PathConstraint_SetTargetVelocity(JPC_Constraint *constraint, float velocity);
+/* Clamped to the path's range unless the path loops. */
+JPC_API void JPC_PathConstraint_SetTargetPathFraction(JPC_Constraint *constraint, float fraction);
+
 JPC_API void JPC_SwingTwistConstraint_SetNormalHalfConeAngle(JPC_Constraint *constraint, float angle);
 JPC_API void JPC_SwingTwistConstraint_SetPlaneHalfConeAngle(JPC_Constraint *constraint, float angle);
 JPC_API void JPC_SwingTwistConstraint_SetTwistMinAngle(JPC_Constraint *constraint, float angle);
@@ -953,6 +1136,160 @@ JPC_API void JPC_SixDOFConstraint_SetTargetAngularVelocityCS(JPC_Constraint *con
 JPC_API void JPC_SixDOFConstraint_SetTargetPositionCS(JPC_Constraint *constraint, JPC_Vec3 position);
 JPC_API void JPC_SixDOFConstraint_SetTargetOrientationCS(JPC_Constraint *constraint, JPC_Quat orientation);
 JPC_API JPC_Quat JPC_SixDOFConstraint_GetRotationInConstraintSpace(const JPC_Constraint *constraint);
+
+/* ------------------------------------------------------------------------- */
+/* Wheeled vehicles                                                           */
+/*                                                                            */
+/* A vehicle is a constraint on its body; add it with                         */
+/* JPC_PhysicsSystem_AddConstraint. Vehicles and step listeners of a system   */
+/* run one after another, so they never race each other.                     */
+/* ------------------------------------------------------------------------- */
+
+typedef struct JPC_LinearCurvePoint {
+    float x;
+    float y;
+} JPC_LinearCurvePoint;
+
+typedef struct JPC_WheelSettingsWV {
+    /* In the body's local space. */
+    JPC_Vec3 position;
+    JPC_Vec3 suspension_force_point;
+    JPC_Vec3 suspension_direction;
+    JPC_Vec3 steering_axis;
+    JPC_Vec3 wheel_up;
+    JPC_Vec3 wheel_forward;
+    float suspension_min_length;
+    float suspension_max_length;
+    float suspension_preload_length;
+    JPC_SpringSettings suspension_spring;
+    float radius;
+    float width;
+    bool enable_suspension_force_point;
+    float inertia;
+    float angular_damping;
+    float max_steer_angle;
+    /* Friction as a function of slip ratio / slip angle (degrees). NULL keeps Jolt's default curve. */
+    const JPC_LinearCurvePoint *longitudinal_friction;
+    uint32_t num_longitudinal_friction;
+    const JPC_LinearCurvePoint *lateral_friction;
+    uint32_t num_lateral_friction;
+    float max_brake_torque;
+    float max_hand_brake_torque;
+} JPC_WheelSettingsWV;
+
+typedef struct JPC_VehicleEngineSettings {
+    float max_torque;
+    float min_rpm;
+    float max_rpm;
+    /* Torque fraction as a function of RPM fraction; NULL keeps the default (flat) curve. */
+    const JPC_LinearCurvePoint *normalized_torque;
+    uint32_t num_normalized_torque;
+    float inertia;
+    float angular_damping;
+} JPC_VehicleEngineSettings;
+
+typedef struct JPC_VehicleTransmissionSettings {
+    JPC_TransmissionMode mode;
+    /* At least one of each. */
+    const float *gear_ratios;
+    uint32_t num_gear_ratios;
+    const float *reverse_gear_ratios;
+    uint32_t num_reverse_gear_ratios;
+    float switch_time;
+    float clutch_release_time;
+    float switch_latency;
+    float shift_up_rpm;
+    float shift_down_rpm;
+    float clutch_strength;
+} JPC_VehicleTransmissionSettings;
+
+typedef struct JPC_VehicleDifferentialSettings {
+    /* Wheel indices, or -1 for none. */
+    int32_t left_wheel;
+    int32_t right_wheel;
+    float differential_ratio;
+    float left_right_split;
+    float limited_slip_ratio;
+    float engine_torque_ratio;
+} JPC_VehicleDifferentialSettings;
+
+typedef struct JPC_VehicleAntiRollBar {
+    int32_t left_wheel;
+    int32_t right_wheel;
+    float stiffness;
+} JPC_VehicleAntiRollBar;
+
+typedef struct JPC_WheeledVehicleSettings {
+    JPC_ConstraintSettings base;
+    /* In the body's local space. */
+    JPC_Vec3 up;
+    JPC_Vec3 forward;
+    float max_pitch_roll_angle;
+    const JPC_WheelSettingsWV *wheels;
+    uint32_t num_wheels;
+    const JPC_VehicleAntiRollBar *anti_roll_bars;
+    uint32_t num_anti_roll_bars;
+    JPC_VehicleEngineSettings engine;
+    JPC_VehicleTransmissionSettings transmission;
+    const JPC_VehicleDifferentialSettings *differentials;
+    uint32_t num_differentials;
+    float differential_limited_slip_ratio;
+} JPC_WheeledVehicleSettings;
+
+typedef struct JPC_WheelState {
+    bool has_contact;
+    JPC_BodyID contact_body_id;
+    JPC_SubShapeID contact_sub_shape_id;
+    /* Contact fields are zero without contact. */
+    JPC_RVec3 contact_position;
+    JPC_Vec3 contact_normal;
+    JPC_Vec3 contact_point_velocity;
+    float suspension_length;
+    float angular_velocity;
+    float rotation_angle;
+    float steer_angle;
+    float longitudinal_slip;
+    float lateral_slip;
+} JPC_WheelState;
+
+/* Fill with Jolt's defaults. Curve and gear pointers point at static data owned by joltc. */
+JPC_API void JPC_WheelSettingsWV_SetDefault(JPC_WheelSettingsWV *settings);
+JPC_API void JPC_WheeledVehicleSettings_SetDefault(JPC_WheeledVehicleSettings *settings);
+JPC_API void JPC_VehicleDifferentialSettings_SetDefault(JPC_VehicleDifferentialSettings *settings);
+
+/* How wheels find the ground. Reference counted. layer is the layer the wheels collide as. */
+JPC_API JPC_VehicleCollisionTester *JPC_VehicleCollisionTesterRay_Create(const JPC_PhysicsSystem *system, JPC_ObjectLayer layer, JPC_Vec3 up, float max_slope_angle);
+JPC_API JPC_VehicleCollisionTester *JPC_VehicleCollisionTesterCastSphere_Create(const JPC_PhysicsSystem *system, JPC_ObjectLayer layer, float radius,
+                                                                                JPC_Vec3 up, float max_slope_angle);
+JPC_API JPC_VehicleCollisionTester *JPC_VehicleCollisionTesterCastCylinder_Create(const JPC_PhysicsSystem *system, JPC_ObjectLayer layer, float convex_radius_fraction);
+JPC_API void JPC_VehicleCollisionTester_AddRef(const JPC_VehicleCollisionTester *tester);
+JPC_API void JPC_VehicleCollisionTester_Release(const JPC_VehicleCollisionTester *tester);
+
+/* Returns NULL (with an error) for invalid settings or a body that does not exist or is owned by a character. */
+JPC_API JPC_Constraint *JPC_PhysicsSystem_CreateWheeledVehicle(JPC_PhysicsSystem *system, const JPC_WheeledVehicleSettings *settings, JPC_BodyID body,
+                                                               const JPC_VehicleCollisionTester *tester);
+
+/* The following must only be called on vehicle constraints. */
+JPC_API void JPC_Vehicle_SetCollisionTester(JPC_Constraint *vehicle, const JPC_VehicleCollisionTester *tester);
+/* forward and right in [-1, 1], brake and hand_brake in [0, 1]. */
+JPC_API void JPC_Vehicle_SetDriverInput(JPC_Constraint *vehicle, float forward, float right, float brake, float hand_brake);
+JPC_API uint32_t JPC_Vehicle_GetNumWheels(const JPC_Constraint *vehicle);
+/* Returns false for an out of range wheel. */
+JPC_API bool JPC_Vehicle_GetWheelState(const JPC_Constraint *vehicle, uint32_t wheel, JPC_WheelState *out_state);
+/* Transform of a wheel model whose axle is wheel_right and top is wheel_up in its own space. */
+JPC_API bool JPC_Vehicle_GetWheelWorldTransform(const JPC_Constraint *vehicle, uint32_t wheel, JPC_Vec3 wheel_right, JPC_Vec3 wheel_up, JPC_RMat44 *out_transform);
+JPC_API float JPC_Vehicle_GetEngineRPM(const JPC_Constraint *vehicle);
+/* Positive for forward gears, negative for reverse, 0 for neutral. */
+JPC_API int32_t JPC_Vehicle_GetCurrentGear(const JPC_Constraint *vehicle);
+JPC_API float JPC_Vehicle_GetClutchFriction(const JPC_Constraint *vehicle);
+JPC_API bool JPC_Vehicle_IsSwitchingGear(const JPC_Constraint *vehicle);
+/* Manual transmissions: select a gear in [-num_reverse, num_forward] and a clutch friction in [0, 1]. */
+JPC_API bool JPC_Vehicle_SetTransmission(JPC_Constraint *vehicle, int32_t gear, float clutch_friction);
+JPC_API void JPC_Vehicle_SetMaxPitchRollAngle(JPC_Constraint *vehicle, float angle);
+JPC_API void JPC_Vehicle_SetNumStepsBetweenCollisionTests(JPC_Constraint *vehicle, uint32_t active, uint32_t inactive);
+JPC_API void JPC_Vehicle_OverrideGravity(JPC_Constraint *vehicle, JPC_Vec3 gravity);
+JPC_API void JPC_Vehicle_ResetGravityOverride(JPC_Constraint *vehicle);
+JPC_API JPC_BodyID JPC_Vehicle_GetBody(const JPC_Constraint *vehicle);
 
 /* ------------------------------------------------------------------------- */
 /* Characters                                                                 */

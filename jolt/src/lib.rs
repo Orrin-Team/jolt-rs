@@ -43,7 +43,9 @@ mod material;
 mod math;
 mod query;
 mod shape;
+mod snapshot;
 mod system;
+pub mod vehicle;
 
 use std::ffi::{CStr, c_char};
 use std::sync::{Once, RwLock};
@@ -61,7 +63,9 @@ pub use character::{
 pub use constraint::{
     ConeConstraintSettings, ConstraintCommon, ConstraintId, ConstraintKind, ConstraintMut, ConstraintSettings, ConstraintSpace,
     DistanceConstraintSettings, FixedConstraintSettings, HingeConstraintSettings, MotorSettings, MotorState, PointConstraintSettings,
-    SixDofAxis, SixDofConstraintSettings, SliderConstraintSettings, SpringSettings, SwingTwistConstraintSettings, SwingType,
+    GearConstraintSettings, PathConstraintPath, PathConstraintSettings, PathPoint, PathRotationConstraint, PulleyConstraintSettings,
+    RackAndPinionConstraintSettings, SixDofAxis, SixDofConstraintSettings, SliderConstraintSettings, SpringSettings,
+    SwingTwistConstraintSettings, SwingType,
 };
 pub use error::{Error, Result};
 pub use group::{CollisionGroup, GroupFilter, GroupFilterTable};
@@ -71,9 +75,17 @@ pub use listener::{
     SubShapeIdPair, ValidateResult,
 };
 pub use material::PhysicsMaterial;
+pub use vehicle::{
+    AntiRollBar, TransmissionMode, VehicleCollisionTester, VehicleDifferentialSettings, VehicleEngineSettings, VehicleMut,
+    VehicleTransmissionSettings, WheelSettings, WheelState, WheeledVehicleSettings,
+};
 pub use math::{AABox, Mat44, Quat, Vec3};
-pub use query::{BackFaceMode, PointHit, QueryFilter, RayCastHit, RayCastSettings, ShapeHit};
+pub use query::{
+    ActiveEdgeMode, BackFaceMode, BroadPhaseCastHit, CollideShapeSettings, PointHit, QueryFilter, RayCastHit, RayCastSettings, ShapeCastSettings,
+    ShapeHit,
+};
 pub use shape::{CompoundSubShape, DEFAULT_CONVEX_RADIUS, MassProperties, Shape, ShapeSubType, ShapeType};
+pub use snapshot::{PhysicsSnapshot, StateParts};
 pub use system::{JobSystem, PhysicsSettings, PhysicsSystem, PhysicsSystemSettings, TempAllocator, UpdateError};
 
 /// Sets up Jolt's allocator, factory and type registry. Called automatically by every constructor,
