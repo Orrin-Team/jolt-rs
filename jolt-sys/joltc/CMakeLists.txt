@@ -12,7 +12,7 @@ target_sources(Jolt PRIVATE
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/joltc.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/joltc_character.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/joltc_internal.h")
-target_include_directories(Jolt PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+target_include_directories(Jolt PUBLIC "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>")
 
 if (JOLTC_BUILD_EXAMPLES)
 	add_executable(joltc_hello_world examples/hello_world.c)
