@@ -26,7 +26,7 @@ jobs:
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
       - name: Test with Jolt asserts
-        run: cargo test -p jolt --features asserts
+        run: cargo test -p orrin-jolt --features asserts
 
   asan:
     name: AddressSanitizer

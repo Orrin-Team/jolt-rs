@@ -1,10 +1,13 @@
 [package]
-name = "jolt-sys"
+name = "orrin-jolt-sys"
 description = "Raw FFI bindings to Jolt Physics through the joltc C API"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "../README.md"
 links = "jolt"
 build = "build.rs"
 include = [
@@ -15,6 +18,11 @@ include = [
     "/JoltPhysics/Build/CMakeLists.txt",
     "/JoltPhysics/Jolt/**",
 ]
+
+[lib]
+# The crate name `jolt-sys` is taken on crates.io; the library keeps it, so
+# `use jolt_sys` reads the same wherever this is built from.
+name = "jolt_sys"
 
 [features]
 # Compile Jolt with JPH_ENABLE_ASSERTS.
