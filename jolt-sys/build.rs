@@ -59,6 +59,9 @@ fn build_jolt(joltc_dir: &std::path::Path, jolt_dir: &std::path::Path) {
         .define("JPH_USE_CPU_COMPUTE", "OFF")
         .define("DOUBLE_PRECISION", "OFF")
         .define("OBJECT_LAYER_BITS", "16")
+        // On MSVC Jolt otherwise traps floating point exceptions in its worker threads, where Rust callbacks run too:
+        // any NaN in a listener would kill the process.
+        .define("FLOATING_POINT_EXCEPTIONS_ENABLED", "OFF")
         .define("USE_ASSERTS", on_off(cfg!(feature = "asserts")))
         .define("CROSS_PLATFORM_DETERMINISTIC", on_off(cfg!(feature = "cross-platform-deterministic")))
         // Match the C runtime Rust links against on MSVC.
