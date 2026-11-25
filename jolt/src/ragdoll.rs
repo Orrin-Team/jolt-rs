@@ -91,7 +91,7 @@ pub struct JointState {
 }
 
 impl Skeleton {
-    fn as_raw(&self) -> *const sys::JPC_Skeleton {
+    pub(crate) fn as_raw(&self) -> *const sys::JPC_Skeleton {
         self.raw.as_ptr()
     }
 

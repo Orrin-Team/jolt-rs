@@ -264,6 +264,9 @@ typedef struct JPC_VehicleCollisionTester JPC_VehicleCollisionTester;
 typedef struct JPC_Skeleton JPC_Skeleton;
 typedef struct JPC_RagdollSettings JPC_RagdollSettings;
 typedef struct JPC_Ragdoll JPC_Ragdoll;
+typedef struct JPC_SkeletalAnimation JPC_SkeletalAnimation;
+typedef struct JPC_SkeletonMapper JPC_SkeletonMapper;
+typedef struct JPC_SoftBodySharedSettings JPC_SoftBodySharedSettings;
 
 /* ------------------------------------------------------------------------- */
 /* Global setup                                                               */
@@ -684,7 +687,7 @@ JPC_API void JPC_BodyInterface_DeactivateBody(JPC_BodyInterface *bi, JPC_BodyID 
 JPC_API bool JPC_BodyInterface_IsActive(const JPC_BodyInterface *bi, JPC_BodyID id);
 JPC_API void JPC_BodyInterface_ResetSleepTimer(JPC_BodyInterface *bi, JPC_BodyID id);
 
-/* Returns a new reference, or NULL if the body does not exist. */
+/* Returns a new reference, or NULL if the body does not exist or is a soft body. Setting does nothing on soft bodies. */
 JPC_API JPC_Shape *JPC_BodyInterface_GetShape(const JPC_BodyInterface *bi, JPC_BodyID id);
 JPC_API void JPC_BodyInterface_SetShape(JPC_BodyInterface *bi, JPC_BodyID id, const JPC_Shape *shape, bool update_mass_properties, JPC_Activation activation);
 
@@ -749,6 +752,7 @@ JPC_API void JPC_BodyInterface_SetCollisionGroup(JPC_BodyInterface *bi, JPC_Body
 JPC_API JPC_AABox JPC_BodyInterface_GetWorldSpaceBounds(const JPC_BodyInterface *bi, JPC_BodyID id);
 /* 0 for static bodies. */
 JPC_API float JPC_BodyInterface_GetInverseMass(const JPC_BodyInterface *bi, JPC_BodyID id);
+/* Zero for bodies that are not dynamic. */
 JPC_API JPC_Mat44 JPC_BodyInterface_GetInverseInertia(const JPC_BodyInterface *bi, JPC_BodyID id);
 JPC_API float JPC_BodyInterface_GetMaxLinearVelocity(const JPC_BodyInterface *bi, JPC_BodyID id);
 JPC_API void JPC_BodyInterface_SetMaxLinearVelocity(JPC_BodyInterface *bi, JPC_BodyID id, float velocity);
@@ -775,9 +779,194 @@ JPC_API JPC_Vec3 JPC_Body_GetLinearVelocity(const JPC_Body *body);
 JPC_API JPC_Vec3 JPC_Body_GetAngularVelocity(const JPC_Body *body);
 JPC_API float JPC_Body_GetFriction(const JPC_Body *body);
 JPC_API float JPC_Body_GetRestitution(const JPC_Body *body);
-/* Borrowed: valid as long as the body keeps this shape. */
+/* Borrowed: valid as long as the body keeps this shape. NULL for soft bodies, whose shape lives inside the body. */
 JPC_API const JPC_Shape *JPC_Body_GetShape(const JPC_Body *body);
+JPC_API bool JPC_Body_IsSoftBody(const JPC_Body *body);
 JPC_API JPC_AABox JPC_Body_GetWorldSpaceBounds(const JPC_Body *body);
+
+/* ------------------------------------------------------------------------- */
+/* Soft bodies                                                                */
+/*                                                                            */
+/* A soft body is a body made of particles (vertices) held together by        */
+/* constraints. It lives in the same world as rigid bodies and uses the same  */
+/* ids, but calls that only make sense for rigid bodies (shapes, kinematic    */
+/* motion, rotation, constraints, vehicles, characters) refuse soft bodies.   */
+/* Velocity is kept per vertex: setting the body's velocity or adding         */
+/* impulses or torque has no effect (forces and gravity do). Vehicles don't   */
+/* drive on soft bodies.                                                      */
+/* ------------------------------------------------------------------------- */
+
+typedef enum JPC_SoftBodyBendType {
+    JPC_SOFT_BODY_BEND_TYPE_NONE = 0,
+    JPC_SOFT_BODY_BEND_TYPE_DISTANCE = 1,
+    JPC_SOFT_BODY_BEND_TYPE_DIHEDRAL = 2,
+} JPC_SoftBodyBendType;
+
+typedef enum JPC_SoftBodyLRAType {
+    JPC_SOFT_BODY_LRA_TYPE_NONE = 0,
+    JPC_SOFT_BODY_LRA_TYPE_EUCLIDEAN_DISTANCE = 1,
+    JPC_SOFT_BODY_LRA_TYPE_GEODESIC_DISTANCE = 2,
+} JPC_SoftBodyLRAType;
+
+typedef struct JPC_SoftBodyVertex {
+    JPC_Vec3 position;
+    JPC_Vec3 velocity;
+    /* 0 pins the vertex (it moves only when you move it). */
+    float inv_mass;
+} JPC_SoftBodyVertex;
+
+typedef struct JPC_SoftBodyFace {
+    uint32_t vertices[3];
+    /* Index into the materials of the settings (0 when there are none). */
+    uint32_t material_index;
+} JPC_SoftBodyFace;
+
+/* Compliance is the inverse of stiffness: 0 is rigid. */
+typedef struct JPC_SoftBodyEdge {
+    uint32_t vertices[2];
+    float compliance;
+} JPC_SoftBodyEdge;
+
+/* Keeps the angle between the triangles (v0, v1, v2) and (v1, v0, v3) that share the edge v0-v1. */
+typedef struct JPC_SoftBodyDihedralBend {
+    uint32_t vertices[4];
+    float compliance;
+} JPC_SoftBodyDihedralBend;
+
+/* Keeps the volume of a tetrahedron. */
+typedef struct JPC_SoftBodyVolume {
+    uint32_t vertices[4];
+    float compliance;
+} JPC_SoftBodyVolume;
+
+/* Long range attachment: keeps a dynamic vertex (1) within its rest distance (times the multiplier) of a pinned one (0). */
+typedef struct JPC_SoftBodyLRA {
+    uint32_t vertices[2];
+    float max_distance_multiplier;
+} JPC_SoftBodyLRA;
+
+/* Per vertex settings for creating constraints from the faces. */
+typedef struct JPC_SoftBodyVertexAttributes {
+    float compliance;
+    float shear_compliance;
+    /* FLT_MAX for no bend constraints. */
+    float bend_compliance;
+    JPC_SoftBodyLRAType lra_type;
+    float lra_max_distance_multiplier;
+} JPC_SoftBodyVertexAttributes;
+
+typedef struct JPC_SoftBodySharedSettingsDesc {
+    const JPC_SoftBodyVertex *vertices;
+    uint32_t num_vertices;
+    const JPC_SoftBodyFace *faces;
+    uint32_t num_faces;
+    /* Borrowed. None means every face uses the default material. */
+    const JPC_PhysicsMaterial *const *materials;
+    uint32_t num_materials;
+    /* When given, edge, shear, bend and LRA constraints are created from the faces. One per vertex; when there are
+     * fewer, the last one is repeated. */
+    const JPC_SoftBodyVertexAttributes *vertex_attributes;
+    uint32_t num_vertex_attributes;
+    JPC_SoftBodyBendType bend_type;
+    /* Radians; how far from a square two triangles may be to get a shear edge. */
+    float angle_tolerance;
+    /* Extra constraints, added to the generated ones. Their rest lengths, angles and volumes come from the vertex positions. */
+    const JPC_SoftBodyEdge *edges;
+    uint32_t num_edges;
+    const JPC_SoftBodyDihedralBend *dihedral_bends;
+    uint32_t num_dihedral_bends;
+    const JPC_SoftBodyVolume *volumes;
+    uint32_t num_volumes;
+    const JPC_SoftBodyLRA *lras;
+    uint32_t num_lras;
+} JPC_SoftBodySharedSettingsDesc;
+
+typedef struct JPC_SoftBodySharedSettingsCounts {
+    uint32_t vertices;
+    uint32_t faces;
+    uint32_t edges;
+    uint32_t dihedral_bends;
+    uint32_t volumes;
+    uint32_t lras;
+} JPC_SoftBodySharedSettingsCounts;
+
+JPC_API void JPC_SoftBodyVertexAttributes_SetDefault(JPC_SoftBodyVertexAttributes *attributes);
+JPC_API void JPC_SoftBodySharedSettingsDesc_SetDefault(JPC_SoftBodySharedSettingsDesc *desc);
+/* The particles and constraints of a soft body; one settings object can create many bodies. Immutable and reference
+ * counted. NULL with an error for out of range or repeated vertex indices, degenerate faces, bad material indices,
+ * constraints between vertices at the same position, negative masses or compliances. */
+JPC_API JPC_SoftBodySharedSettings *JPC_SoftBodySharedSettings_Create(const JPC_SoftBodySharedSettingsDesc *desc);
+/* A cube of grid_size^3 vertices (2 to 64 per side) with edge and volume constraints, for testing. */
+JPC_API JPC_SoftBodySharedSettings *JPC_SoftBodySharedSettings_CreateCube(uint32_t grid_size, float spacing);
+JPC_API void JPC_SoftBodySharedSettings_AddRef(const JPC_SoftBodySharedSettings *settings);
+JPC_API void JPC_SoftBodySharedSettings_Release(const JPC_SoftBodySharedSettings *settings);
+JPC_API void JPC_SoftBodySharedSettings_GetCounts(const JPC_SoftBodySharedSettings *settings, JPC_SoftBodySharedSettingsCounts *out_counts);
+/* Writes up to capacity faces and returns the total number (e.g. to render the body). */
+JPC_API uint32_t JPC_SoftBodySharedSettings_GetFaces(const JPC_SoftBodySharedSettings *settings, JPC_SoftBodyFace *out_faces, uint32_t capacity);
+
+typedef struct JPC_SoftBodyCreationSettings {
+    /* Borrowed; the body keeps its own reference. Required. */
+    const JPC_SoftBodySharedSettings *settings;
+    JPC_RVec3 position;
+    JPC_Quat rotation;
+    uint64_t user_data;
+    JPC_ObjectLayer object_layer;
+    JPC_CollisionGroup collision_group;
+    uint32_t num_iterations;
+    float linear_damping;
+    float max_linear_velocity;
+    float restitution;
+    float friction;
+    /* Inflates closed bodies (n * R * T of the ideal gas law); 0 for none. */
+    float pressure;
+    float gravity_factor;
+    /* Keeps vertices this far away from other bodies. */
+    float vertex_radius;
+    /* Keep the body's position at its vertices' center (false for things attached to the static world). */
+    bool update_position;
+    /* Bake the rotation into the vertices and keep the body's rotation identity (more accurate). */
+    bool make_rotation_identity;
+    bool allow_sleeping;
+    /* Queries hit faces from both sides. */
+    bool faces_double_sided;
+} JPC_SoftBodyCreationSettings;
+
+JPC_API void JPC_SoftBodyCreationSettings_SetDefault(JPC_SoftBodyCreationSettings *settings);
+JPC_API JPC_BodyID JPC_BodyInterface_CreateSoftBody(JPC_BodyInterface *bi, const JPC_SoftBodyCreationSettings *settings);
+JPC_API JPC_BodyID JPC_BodyInterface_CreateAndAddSoftBody(JPC_BodyInterface *bi, const JPC_SoftBodyCreationSettings *settings, JPC_Activation activation);
+JPC_API bool JPC_BodyInterface_IsSoftBody(const JPC_BodyInterface *bi, JPC_BodyID id);
+/* New reference, or NULL if the body is not a soft body. */
+JPC_API JPC_SoftBodySharedSettings *JPC_BodyInterface_GetSoftBodySharedSettings(const JPC_BodyInterface *bi, JPC_BodyID id);
+
+typedef struct JPC_SoftBodyVertexState {
+    JPC_Vec3 position;
+    JPC_Vec3 velocity;
+    float inv_mass;
+} JPC_SoftBodyVertexState;
+
+/* Copies up to capacity vertices starting at first and returns the body's total vertex count (0 for anything that is
+ * not a soft body). world_space gives world positions and velocities, otherwise they are relative to the body's
+ * center of mass transform. */
+JPC_API uint32_t JPC_BodyInterface_GetSoftBodyVertices(const JPC_BodyInterface *bi, JPC_BodyID id, uint32_t first, JPC_SoftBodyVertexState *out_vertices,
+                                                       uint32_t capacity, bool world_space);
+/* Overwrites count vertices starting at first; changing inverse masses updates the body's
+ * mass. Returns false for anything that is not a soft body or a range past the end. */
+JPC_API bool JPC_BodyInterface_SetSoftBodyVertices(JPC_BodyInterface *bi, JPC_BodyID id, uint32_t first, const JPC_SoftBodyVertexState *vertices, uint32_t count,
+                                                   bool world_space, JPC_Activation activation);
+
+typedef struct JPC_SoftBodyProperties {
+    uint32_t num_iterations;
+    float pressure;
+    float vertex_radius;
+    bool update_position;
+    bool faces_double_sided;
+} JPC_SoftBodyProperties;
+
+/* Return false for anything that is not a soft body. Setting fails for a negative vertex_radius. */
+JPC_API bool JPC_BodyInterface_GetSoftBodyProperties(const JPC_BodyInterface *bi, JPC_BodyID id, JPC_SoftBodyProperties *out_properties);
+JPC_API bool JPC_BodyInterface_SetSoftBodyProperties(JPC_BodyInterface *bi, JPC_BodyID id, const JPC_SoftBodyProperties *properties);
+/* Current enclosed volume (meaningful for closed bodies), 0 for anything that is not a soft body. */
+JPC_API float JPC_BodyInterface_GetSoftBodyVolume(const JPC_BodyInterface *bi, JPC_BodyID id);
 
 /* ------------------------------------------------------------------------- */
 /* Queries                                                                    */
@@ -834,6 +1023,12 @@ typedef struct JPC_ShapeHit {
     bool is_back_face_hit;
     /* Material of the hit body at sub_shape_id2, NULL for the default material. Borrowed. */
     const JPC_PhysicsMaterial *material;
+    /* With collect_faces set in the query settings: the touching faces of the query shape (1) and the hit shape (2),
+     * in world space, up to 32 points each. Only valid during the collector callback; NULL and 0 otherwise. */
+    const JPC_Vec3 *face1;
+    uint32_t num_face1;
+    const JPC_Vec3 *face2;
+    uint32_t num_face2;
 } JPC_ShapeHit;
 
 /* Return false from a collector to stop the query early. Collectors and body filters run on the calling thread while
@@ -866,6 +1061,8 @@ typedef struct JPC_CollideShapeSettings {
     JPC_Vec3 active_edge_movement_direction;
     float collision_tolerance;
     float penetration_tolerance;
+    /* Report the touching faces of both shapes with each hit (JPC_ShapeHit::face1 / face2). */
+    bool collect_faces;
 } JPC_CollideShapeSettings;
 
 typedef struct JPC_ShapeCastSettings {
@@ -877,6 +1074,7 @@ typedef struct JPC_ShapeCastSettings {
     JPC_Vec3 active_edge_movement_direction;
     float collision_tolerance;
     float penetration_tolerance;
+    bool collect_faces;
 } JPC_ShapeCastSettings;
 
 JPC_API void JPC_CollideShapeSettings_SetDefault(JPC_CollideShapeSettings *settings);
@@ -1348,7 +1546,8 @@ JPC_API void JPC_WheelSettingsWV_SetDefault(JPC_WheelSettingsWV *settings);
 JPC_API void JPC_WheeledVehicleSettings_SetDefault(JPC_WheeledVehicleSettings *settings);
 JPC_API void JPC_VehicleDifferentialSettings_SetDefault(JPC_VehicleDifferentialSettings *settings);
 
-/* How wheels find the ground. Reference counted. layer is the layer the wheels collide as. */
+/* How wheels find the ground. Reference counted. layer is the layer the wheels collide as. Wheels ignore their own
+ * vehicle's body and soft bodies. */
 JPC_API JPC_VehicleCollisionTester *JPC_VehicleCollisionTesterRay_Create(const JPC_PhysicsSystem *system, JPC_ObjectLayer layer, JPC_Vec3 up, float max_slope_angle);
 JPC_API JPC_VehicleCollisionTester *JPC_VehicleCollisionTesterCastSphere_Create(const JPC_PhysicsSystem *system, JPC_ObjectLayer layer, float radius,
                                                                                 JPC_Vec3 up, float max_slope_angle);
@@ -1432,7 +1631,8 @@ JPC_API JPC_Constraint *JPC_PhysicsSystem_CreateTrackedVehicle(JPC_PhysicsSystem
 /* The following must only be called on vehicle constraints. Functions for one kind of vehicle do nothing (or
  * return false / 0) for the others. */
 JPC_API JPC_VehicleKind JPC_Vehicle_GetKind(const JPC_Constraint *vehicle);
-JPC_API void JPC_Vehicle_SetCollisionTester(JPC_Constraint *vehicle, const JPC_VehicleCollisionTester *tester);
+/* Returns false (with an error) for a tester whose layer the vehicle's system doesn't have. */
+JPC_API bool JPC_Vehicle_SetCollisionTester(JPC_Constraint *vehicle, const JPC_VehicleCollisionTester *tester);
 /* Wheeled vehicles and motorcycles. forward and right in [-1, 1], brake and hand_brake in [0, 1]. */
 JPC_API void JPC_Vehicle_SetDriverInput(JPC_Constraint *vehicle, float forward, float right, float brake, float hand_brake);
 /* Tracked vehicles. forward in [-1, 1], brake in [0, 1]. The ratios in [-1, 1] scale each track's speed to steer
@@ -1583,6 +1783,60 @@ JPC_API uint32_t JPC_Ragdoll_GetConstraintCount(const JPC_Ragdoll *ragdoll);
 JPC_API JPC_Constraint *JPC_Ragdoll_GetConstraint(JPC_Ragdoll *ragdoll, uint32_t index);
 /* Borrowed. */
 JPC_API const JPC_RagdollSettings *JPC_Ragdoll_GetSettings(const JPC_Ragdoll *ragdoll);
+
+/* ------------------------------------------------------------------------- */
+/* Skeletal animation                                                         */
+/* ------------------------------------------------------------------------- */
+
+typedef struct JPC_AnimationKeyframe {
+    /* Seconds. */
+    float time;
+    /* Local to the parent joint, like JPC_JointState. */
+    JPC_Vec3 translation;
+    JPC_Quat rotation;
+} JPC_AnimationKeyframe;
+
+typedef struct JPC_AnimatedJoint {
+    /* Matched by name against the skeleton when sampling. */
+    const char *name;
+    /* At least one, in time order. */
+    const JPC_AnimationKeyframe *keyframes;
+    uint32_t num_keyframes;
+} JPC_AnimatedJoint;
+
+/* Keyframed joint animation. Immutable and reference counted. Rotations are normalized. NULL with an error for a
+ * joint without keyframes, keyframes out of time order, or a rotation of length 0. */
+JPC_API JPC_SkeletalAnimation *JPC_SkeletalAnimation_Create(const JPC_AnimatedJoint *joints, uint32_t num_joints, bool looping);
+JPC_API void JPC_SkeletalAnimation_AddRef(const JPC_SkeletalAnimation *animation);
+JPC_API void JPC_SkeletalAnimation_Release(const JPC_SkeletalAnimation *animation);
+/* Time of the last keyframe of the first animated joint, as Jolt defines it. */
+JPC_API float JPC_SkeletalAnimation_GetDuration(const JPC_SkeletalAnimation *animation);
+JPC_API bool JPC_SkeletalAnimation_IsLooping(const JPC_SkeletalAnimation *animation);
+/* Overwrites the local states (one per skeleton joint) of the joints the animation animates, interpolating between
+ * keyframes; looping animations wrap time around the duration, negative times count as 0. Returns false (and
+ * changes nothing) if the animation animates a joint the skeleton doesn't have. */
+JPC_API bool JPC_SkeletalAnimation_Sample(const JPC_SkeletalAnimation *animation, const JPC_Skeleton *skeleton, float time, JPC_JointState *io_states);
+
+/* Maps poses between a low detail skeleton 1 (e.g. a ragdoll's) and a high detail skeleton 2 (e.g. an animated
+ * character's), matching joints by name. Joints of 2 between mapped joints follow as chains; other joints of 2 keep
+ * their animated local transform. Neutral poses are model space matrices, one per joint, in the same pose.
+ * Optionally the translations of joints of 2 can be locked to their neutral offset from their parent, either per joint
+ * (locked_translations, one per joint of 2; root joints can't be locked and are ignored) or for every joint below the
+ * first mapped one (lock_all_translations). Immutable and reference counted. NULL with an error if skeleton 1 has
+ * more joints than skeleton 2. */
+JPC_API JPC_SkeletonMapper *JPC_SkeletonMapper_Create(const JPC_Skeleton *skeleton1, const JPC_Mat44 *neutral_pose1, const JPC_Skeleton *skeleton2,
+                                                      const JPC_Mat44 *neutral_pose2, const bool *locked_translations, bool lock_all_translations);
+JPC_API void JPC_SkeletonMapper_AddRef(const JPC_SkeletonMapper *mapper);
+JPC_API void JPC_SkeletonMapper_Release(const JPC_SkeletonMapper *mapper);
+JPC_API void JPC_SkeletonMapper_GetJointCounts(const JPC_SkeletonMapper *mapper, uint32_t *out_count1, uint32_t *out_count2);
+/* pose1_model_space has a matrix per joint of 1, pose2_local_space and out_pose2_model_space one per joint of 2. */
+JPC_API void JPC_SkeletonMapper_Map(const JPC_SkeletonMapper *mapper, const JPC_Mat44 *pose1_model_space, const JPC_Mat44 *pose2_local_space,
+                                    JPC_Mat44 *out_pose2_model_space);
+/* Only writes the joints of 1 that are mapped directly. */
+JPC_API void JPC_SkeletonMapper_MapReverse(const JPC_SkeletonMapper *mapper, const JPC_Mat44 *pose2_model_space, JPC_Mat44 *out_pose1_model_space);
+/* Joint of 2 that a joint of 1 maps to, or -1. */
+JPC_API int32_t JPC_SkeletonMapper_GetMappedJointIndex(const JPC_SkeletonMapper *mapper, uint32_t joint1);
+JPC_API bool JPC_SkeletonMapper_IsJointTranslationLocked(const JPC_SkeletonMapper *mapper, uint32_t joint2);
 
 /* ------------------------------------------------------------------------- */
 /* Characters                                                                 */

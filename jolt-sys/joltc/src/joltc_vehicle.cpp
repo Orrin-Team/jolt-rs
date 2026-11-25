@@ -11,6 +11,17 @@ static const float sDefaultReverseGearRatios[] = { -2.90f };
 static const float sDefaultTrackedGearRatios[] = { 4.0f, 3.0f, 2.0f, 1.0f };
 static const float sDefaultTrackedReverseGearRatios[] = { -4.0f, -3.0f };
 
+// Wheels must not hit their own vehicle (Jolt's default when no filter is set) nor soft bodies: Jolt would link a soft
+// body's index into the rigid island builder and corrupt the islands
+class VehicleWheelBodyFilter final : public BodyFilter
+{
+public:
+	virtual bool			ShouldCollide(const BodyID &inBodyID) const override		{ return inBodyID != mVehicleBody; }
+	virtual bool			ShouldCollideLocked(const Body &inBody) const override		{ return !inBody.IsSoftBody(); }
+
+	BodyID					mVehicleBody;
+};
+
 // Jolt has no way to ask which controller a vehicle has (and is built without C++ RTTI), so every vehicle joltc
 // creates records it
 class JPC_VehicleConstraint final : public VehicleConstraint
@@ -20,6 +31,10 @@ public:
 								VehicleConstraint(inBody, inSettings), mKind(inKind) { }
 
 	JPC_VehicleKind			mKind;
+	// Used by the vehicle's own tester; lives as long as the vehicle
+	VehicleWheelBodyFilter	mWheelFilter;
+	// Testers can come from another system, whose layers this one may not have
+	const JPC_PhysicsSystem *mSystem = nullptr;
 };
 
 static void ToJph(const JPC_LinearCurvePoint *inPoints, uint32_t inCount, LinearCurve &outCurve)
@@ -236,24 +251,58 @@ static const JPC_VehicleConstraint *AsVehicle(const JPC_Constraint *inConstraint
 }
 
 
-static inline const VehicleCollisionTester *ToJph(const JPC_VehicleCollisionTester *t) { return reinterpret_cast<const VehicleCollisionTester *>(t); }
-
-static JPC_VehicleCollisionTester *FinishTester(VehicleCollisionTester *inTester)
+// A tester as the user describes it. Each vehicle builds its own Jolt tester from it, because the tester's body filter
+// has to know the vehicle's body and one description can be shared by many vehicles.
+struct JPC_VehicleCollisionTester
 {
-	inTester->AddRef();
-	return reinterpret_cast<JPC_VehicleCollisionTester *>(inTester);
+	JPH_OVERRIDE_NEW_DELETE
+
+	enum class EKind { Ray, CastSphere, CastCylinder };
+
+	std::atomic<uint32>		mRefCount { 1 };
+	EKind					mKind = EKind::Ray;
+	ObjectLayer				mLayer = 0;
+	Vec3					mUp = Vec3::sAxisY();
+	float					mMaxSlopeAngle = 0.0f;
+	float					mRadius = 0.0f;
+	float					mConvexRadiusFraction = 0.0f;
+};
+
+static Ref<VehicleCollisionTester> Instantiate(const JPC_VehicleCollisionTester &inTester, const BodyFilter *inFilter)
+{
+	Ref<VehicleCollisionTester> tester;
+	switch (inTester.mKind)
+	{
+	case JPC_VehicleCollisionTester::EKind::Ray:			tester = new VehicleCollisionTesterRay(inTester.mLayer, inTester.mUp, inTester.mMaxSlopeAngle); break;
+	case JPC_VehicleCollisionTester::EKind::CastSphere:		tester = new VehicleCollisionTesterCastSphere(inTester.mLayer, inTester.mRadius, inTester.mUp, inTester.mMaxSlopeAngle); break;
+	case JPC_VehicleCollisionTester::EKind::CastCylinder:	tester = new VehicleCollisionTesterCastCylinder(inTester.mLayer, inTester.mConvexRadiusFraction); break;
+	}
+	tester->SetBodyFilter(inFilter);
+	return tester;
 }
 
-static bool CheckTesterLayer(const JPC_PhysicsSystem *inSystem, JPC_ObjectLayer inLayer)
+static JPC_VehicleCollisionTester *MakeTester(const JPC_PhysicsSystem *inSystem, JPC_ObjectLayer inLayer, JPC_VehicleCollisionTester::EKind inKind)
 {
 	if (!inSystem->IsValidLayer(inLayer))
+	{
 		JPC_SetError("Object layer does not exist in this physics system");
-	return inSystem->IsValidLayer(inLayer);
+		return nullptr;
+	}
+	JPC_VehicleCollisionTester *tester = new JPC_VehicleCollisionTester;
+	tester->mKind = inKind;
+	tester->mLayer = inLayer;
+	return tester;
 }
 
 JPC_VehicleCollisionTester *JPC_VehicleCollisionTesterRay_Create(const JPC_PhysicsSystem *system, JPC_ObjectLayer layer, JPC_Vec3 up, float max_slope_angle)
 {
-	return CheckTesterLayer(system, layer) ? FinishTester(new VehicleCollisionTesterRay(layer, ToJph(up), max_slope_angle)) : nullptr;
+	JPC_VehicleCollisionTester *tester = MakeTester(system, layer, JPC_VehicleCollisionTester::EKind::Ray);
+	if (tester != nullptr)
+	{
+		tester->mUp = ToJph(up);
+		tester->mMaxSlopeAngle = max_slope_angle;
+	}
+	return tester;
 }
 
 JPC_VehicleCollisionTester *JPC_VehicleCollisionTesterCastSphere_Create(const JPC_PhysicsSystem *system, JPC_ObjectLayer layer, float radius, JPC_Vec3 up, float max_slope_angle)
@@ -263,16 +312,35 @@ JPC_VehicleCollisionTester *JPC_VehicleCollisionTesterCastSphere_Create(const JP
 		JPC_SetError("Cast sphere radius must be positive");
 		return nullptr;
 	}
-	return CheckTesterLayer(system, layer) ? FinishTester(new VehicleCollisionTesterCastSphere(layer, radius, ToJph(up), max_slope_angle)) : nullptr;
+	JPC_VehicleCollisionTester *tester = MakeTester(system, layer, JPC_VehicleCollisionTester::EKind::CastSphere);
+	if (tester != nullptr)
+	{
+		tester->mRadius = radius;
+		tester->mUp = ToJph(up);
+		tester->mMaxSlopeAngle = max_slope_angle;
+	}
+	return tester;
 }
 
 JPC_VehicleCollisionTester *JPC_VehicleCollisionTesterCastCylinder_Create(const JPC_PhysicsSystem *system, JPC_ObjectLayer layer, float convex_radius_fraction)
 {
-	return CheckTesterLayer(system, layer) ? FinishTester(new VehicleCollisionTesterCastCylinder(layer, Clamp(convex_radius_fraction, 0.0f, 1.0f))) : nullptr;
+	JPC_VehicleCollisionTester *tester = MakeTester(system, layer, JPC_VehicleCollisionTester::EKind::CastCylinder);
+	if (tester != nullptr)
+		tester->mConvexRadiusFraction = Clamp(convex_radius_fraction, 0.0f, 1.0f);
+	return tester;
 }
 
-void JPC_VehicleCollisionTester_AddRef(const JPC_VehicleCollisionTester *tester) { ToJph(tester)->AddRef(); }
-void JPC_VehicleCollisionTester_Release(const JPC_VehicleCollisionTester *tester) { ToJph(tester)->Release(); }
+void JPC_VehicleCollisionTester_AddRef(const JPC_VehicleCollisionTester *tester)
+{
+	const_cast<JPC_VehicleCollisionTester *>(tester)->mRefCount.fetch_add(1, std::memory_order_relaxed);
+}
+
+void JPC_VehicleCollisionTester_Release(const JPC_VehicleCollisionTester *tester)
+{
+	JPC_VehicleCollisionTester *t = const_cast<JPC_VehicleCollisionTester *>(tester);
+	if (t->mRefCount.fetch_sub(1, std::memory_order_acq_rel) == 1)
+		delete t;
+}
 
 static void ToJphBase(const JPC_ConstraintSettings &inBase, JPC_Vec3 inUp, JPC_Vec3 inForward, float inMaxPitchRollAngle,
 					  const JPC_VehicleAntiRollBar *inBars, uint32_t inNumBars, VehicleConstraintSettings &outSettings)
@@ -407,6 +475,15 @@ static void ToJphWheeled(const JPC_WheeledVehicleSettings &in, VehicleConstraint
 	controller.mDifferentialLimitedSlipRatio = in.differential_limited_slip_ratio;
 }
 
+// Jolt indexes its layer tables with the tester's layer without checks
+static bool CheckTesterLayer(const JPC_PhysicsSystem *inSystem, const JPC_VehicleCollisionTester &inTester)
+{
+	if (inSystem->IsValidLayer(inTester.mLayer))
+		return true;
+	JPC_SetError("Collision tester layer does not exist in this physics system");
+	return false;
+}
+
 static JPC_Constraint *CreateVehicle(JPC_PhysicsSystem *system, const VehicleConstraintSettings &inSettings, JPC_BodyID body_id,
 									 const JPC_VehicleCollisionTester *tester, JPC_VehicleKind inKind)
 {
@@ -428,8 +505,18 @@ static JPC_Constraint *CreateVehicle(JPC_PhysicsSystem *system, const VehicleCon
 		return nullptr;
 	}
 
+	if (lock.GetBody().IsSoftBody())
+	{
+		JPC_SetError("Vehicle body must be a rigid body");
+		return nullptr;
+	}
+	if (!CheckTesterLayer(system, *tester))
+		return nullptr;
+
 	JPC_VehicleConstraint *vehicle = new JPC_VehicleConstraint(lock.GetBody(), inSettings, inKind);
-	vehicle->SetVehicleCollisionTester(ToJph(tester));
+	vehicle->mWheelFilter.mVehicleBody = lock.GetBody().GetID();
+	vehicle->mSystem = system;
+	vehicle->SetVehicleCollisionTester(Instantiate(*tester, &vehicle->mWheelFilter));
 	vehicle->AddRef();
 	return reinterpret_cast<JPC_Constraint *>(static_cast<Constraint *>(vehicle));
 }
@@ -440,6 +527,7 @@ static bool CheckTester(const JPC_VehicleCollisionTester *tester)
 		JPC_SetError("Vehicle needs a collision tester");
 	return tester != nullptr;
 }
+
 
 JPC_Constraint *JPC_PhysicsSystem_CreateWheeledVehicle(JPC_PhysicsSystem *system, const JPC_WheeledVehicleSettings *in, JPC_BodyID body_id,
 													   const JPC_VehicleCollisionTester *tester)
@@ -619,10 +707,13 @@ JPC_VehicleKind JPC_Vehicle_GetKind(const JPC_Constraint *vehicle)
 	return v != nullptr ? v->mKind : JPC_VEHICLE_KIND_WHEELED;
 }
 
-void JPC_Vehicle_SetCollisionTester(JPC_Constraint *vehicle, const JPC_VehicleCollisionTester *tester)
+bool JPC_Vehicle_SetCollisionTester(JPC_Constraint *vehicle, const JPC_VehicleCollisionTester *tester)
 {
-	if (VehicleConstraint *v = AsVehicle(vehicle); v != nullptr && tester != nullptr)
-		v->SetVehicleCollisionTester(ToJph(tester));
+	JPC_VehicleConstraint *v = AsVehicle(vehicle);
+	if (v == nullptr || !CheckTester(tester) || !CheckTesterLayer(v->mSystem, *tester))
+		return false;
+	v->SetVehicleCollisionTester(Instantiate(*tester, &v->mWheelFilter));
+	return true;
 }
 
 void JPC_Vehicle_SetDriverInput(JPC_Constraint *vehicle, float forward, float right, float brake, float hand_brake)

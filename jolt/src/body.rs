@@ -395,12 +395,14 @@ impl<'a> BodyInterface<'a> {
         unsafe { sys::JPC_BodyInterface_ResetSleepTimer(self.raw, id.0) }
     }
 
+    /// `None` if the body does not exist or is a soft body.
     pub fn shape(&self, id: BodyId) -> Option<Shape> {
         let raw = unsafe { sys::JPC_BodyInterface_GetShape(self.raw, id.0) };
         // SAFETY: GetShape hands us a new reference.
         std::ptr::NonNull::new(raw).map(|raw| unsafe { Shape::from_raw(raw) })
     }
 
+    /// Does nothing for soft bodies.
     pub fn set_shape(&self, id: BodyId, shape: &Shape, update_mass_properties: bool, activation: Activation) {
         unsafe { sys::JPC_BodyInterface_SetShape(self.raw, id.0, shape.as_raw(), update_mass_properties, activation.to_sys()) }
     }
@@ -531,7 +533,8 @@ impl<'a> BodyInterface<'a> {
         unsafe { sys::JPC_BodyInterface_GetCenterOfMassTransform(self.raw, id.0) }.into()
     }
 
-    /// Sets the velocities of a kinematic body so it reaches the target in `delta_time` seconds.
+    /// Sets the velocities of a kinematic body so it reaches the target in `delta_time` seconds. Does nothing for
+    /// static and soft bodies.
     pub fn move_kinematic(&self, id: BodyId, target_position: Vec3, target_rotation: Quat, delta_time: f32) {
         unsafe {
             sys::JPC_BodyInterface_MoveKinematic(self.raw, id.0, target_position.into(), target_rotation.into(), delta_time)
@@ -542,6 +545,8 @@ impl<'a> BodyInterface<'a> {
         unsafe { sys::JPC_BodyInterface_GetLinearVelocity(self.raw, id.0) }.into()
     }
 
+    /// Soft bodies keep their velocity per vertex, so setting their body velocity, impulses and torque have no effect
+    /// on them (forces do); use [`set_soft_body_vertices`](Self::set_soft_body_vertices).
     pub fn set_linear_velocity(&self, id: BodyId, velocity: Vec3) {
         unsafe { sys::JPC_BodyInterface_SetLinearVelocity(self.raw, id.0, velocity.into()) }
     }
@@ -596,7 +601,8 @@ impl<'a> BodyInterface<'a> {
         MotionType::from_sys(unsafe { sys::JPC_BodyInterface_GetMotionType(self.raw, id.0) })
     }
 
-    /// Fails when making a body movable that was created static without `allow_dynamic_or_kinematic`.
+    /// Fails when making a body movable that was created static without `allow_dynamic_or_kinematic`, and for
+    /// anything but dynamic on a soft body.
     pub fn set_motion_type(&self, id: BodyId, motion_type: MotionType, activation: Activation) -> Result<()> {
         if unsafe { sys::JPC_BodyInterface_SetMotionType(self.raw, id.0, motion_type.to_sys(), activation.to_sys()) } {
             Ok(())
@@ -641,6 +647,7 @@ impl<'a> BodyInterface<'a> {
         unsafe { sys::JPC_BodyInterface_IsSensor(self.raw, id.0) }
     }
 
+    /// Does nothing for soft bodies.
     pub fn set_is_sensor(&self, id: BodyId, is_sensor: bool) {
         unsafe { sys::JPC_BodyInterface_SetIsSensor(self.raw, id.0, is_sensor) }
     }
@@ -679,7 +686,7 @@ impl<'a> BodyInterface<'a> {
         (inv > 0.0).then(|| 1.0 / inv)
     }
 
-    /// World space inverse inertia tensor.
+    /// World space inverse inertia tensor; zero for bodies that are not dynamic.
     pub fn inverse_inertia(&self, id: BodyId) -> Mat44 {
         unsafe { sys::JPC_BodyInterface_GetInverseInertia(self.raw, id.0) }.into()
     }
@@ -710,7 +717,7 @@ impl<'a> BodyInterface<'a> {
 
     /// Applies buoyancy and drag for a fluid whose surface passes through `surface_position` with normal `surface_normal`.
     /// `buoyancy` is the fluid density relative to the body (1 = neutral). Returns false if the body is not dynamic,
-    /// not in the world or not submerged.
+    /// not in the world, not submerged or a soft body.
     #[allow(clippy::too_many_arguments)]
     pub fn apply_buoyancy_impulse(
         &self,
@@ -829,11 +836,16 @@ impl Body {
     }
 
     /// A new handle to the body's current shape.
-    pub fn shape(&self) -> Shape {
-        let raw = unsafe { sys::JPC_Body_GetShape(self.raw()) };
-        unsafe { sys::JPC_Shape_AddRef(raw) };
+    /// `None` for soft bodies, whose shape lives inside the body.
+    pub fn shape(&self) -> Option<Shape> {
+        let raw = NonNull::new(unsafe { sys::JPC_Body_GetShape(self.raw()) }.cast_mut())?;
+        unsafe { sys::JPC_Shape_AddRef(raw.as_ptr()) };
         // SAFETY: we just took a reference for the new handle.
-        unsafe { Shape::from_raw(std::ptr::NonNull::new_unchecked(raw.cast_mut())) }
+        Some(unsafe { Shape::from_raw(raw) })
+    }
+
+    pub fn is_soft_body(&self) -> bool {
+        unsafe { sys::JPC_Body_IsSoftBody(self.raw()) }
     }
 }
 

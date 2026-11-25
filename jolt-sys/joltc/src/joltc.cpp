@@ -634,6 +634,21 @@ static bool IsMovable(const JPC_BodyInterface *bi, JPC_BodyID id)
 	return lock.Succeeded() && !lock.GetBody().IsStatic();
 }
 
+// Soft bodies share ids with rigid bodies, but Jolt only asserts in the calls that are rigid only
+static bool IsSoftBody(const JPC_BodyInterface *bi, JPC_BodyID id)
+{
+	BodyLockRead lock(*bi->mLockInterface, ToJph(id));
+	return lock.Succeeded() && lock.GetBody().IsSoftBody();
+}
+
+static bool RejectSoftBody(const JPC_BodyInterface *bi, JPC_BodyID id)
+{
+	if (!IsSoftBody(bi, id))
+		return false;
+	JPC_SetError("Not supported for soft bodies");
+	return true;
+}
+
 static bool HasMotionProperties(const JPC_BodyInterface *bi, JPC_BodyID id)
 {
 	BodyLockRead lock(*bi->mLockInterface, ToJph(id));
@@ -738,15 +753,25 @@ void JPC_BodyInterface_ResetSleepTimer(JPC_BodyInterface *bi, JPC_BodyID id) { i
 
 JPC_Shape *JPC_BodyInterface_GetShape(const JPC_BodyInterface *bi, JPC_BodyID id)
 {
-	RefConst<Shape> shape = ToJph(bi)->GetShape(ToJph(id));
-	if (shape == nullptr)
+	BodyLockRead lock(*bi->mLockInterface, ToJph(id));
+	if (!lock.Succeeded())
 		return nullptr;
+	// A soft body's shape lives inside the body and dies with it, so no reference may outlive the lock
+	if (lock.GetBody().IsSoftBody())
+	{
+		JPC_SetError("Soft bodies have no shape that can be shared");
+		return nullptr;
+	}
+	const Shape *shape = lock.GetBody().GetShape();
 	shape->AddRef();
-	return ToC(const_cast<Shape *>(shape.GetPtr()));
+	return ToC(const_cast<Shape *>(shape));
 }
 
 void JPC_BodyInterface_SetShape(JPC_BodyInterface *bi, JPC_BodyID id, const JPC_Shape *shape, bool update_mass_properties, JPC_Activation activation)
 {
+	// Replacing the soft body shape would make Jolt read the new shape as one
+	if (RejectSoftBody(bi, id))
+		return;
 	ToJph(bi)->SetShape(ToJph(id), ToJph(shape), update_mass_properties, ToJph(activation));
 	bi->mOwner->BumpStructure();
 }
@@ -793,7 +818,7 @@ JPC_RMat44 JPC_BodyInterface_GetCenterOfMassTransform(const JPC_BodyInterface *b
 
 void JPC_BodyInterface_MoveKinematic(JPC_BodyInterface *bi, JPC_BodyID id, JPC_RVec3 target_position, JPC_Quat target_rotation, float delta_time)
 {
-	if (IsMovable(bi, id))
+	if (IsMovable(bi, id) && !RejectSoftBody(bi, id))
 		ToJph(bi)->MoveKinematic(ToJph(id), ToJph(target_position), ToJph(target_rotation), delta_time);
 }
 
@@ -851,7 +876,7 @@ bool JPC_BodyInterface_ApplyBuoyancyImpulse(JPC_BodyInterface *bi, JPC_BodyID id
 											float linear_drag, float angular_drag, JPC_Vec3 fluid_velocity, JPC_Vec3 gravity, float delta_time)
 {
 	std::shared_lock body_state_lock(bi->mOwner->mBodyStateMutex);
-	if (!IsAddedAndMovable(bi, id))
+	if (!IsAddedAndMovable(bi, id) || RejectSoftBody(bi, id))
 		return false;
 	return ToJph(bi)->ApplyBuoyancyImpulse(ToJph(id), ToJph(surface_position), ToJph(surface_normal), buoyancy, linear_drag, angular_drag,
 										   ToJph(fluid_velocity), ToJph(gravity), delta_time);
@@ -885,13 +910,20 @@ float JPC_BodyInterface_GetInverseMass(const JPC_BodyInterface *bi, JPC_BodyID i
 	return lock.GetBody().GetMotionPropertiesUnchecked()->GetInverseMassUnchecked();
 }
 
-JPC_Mat44 JPC_BodyInterface_GetInverseInertia(const JPC_BodyInterface *bi, JPC_BodyID id) { return ToC(ToJph(bi)->GetInverseInertia(ToJph(id))); }
+JPC_Mat44 JPC_BodyInterface_GetInverseInertia(const JPC_BodyInterface *bi, JPC_BodyID id)
+{
+	// Jolt reads the motion properties even of bodies without any (static ones), so only dynamic bodies get there
+	BodyLockRead lock(*bi->mLockInterface, ToJph(id));
+	if (!lock.Succeeded() || !lock.GetBody().IsDynamic())
+		return ToC(Mat44::sZero());
+	return ToC(lock.GetBody().GetInverseInertia());
+}
 float JPC_BodyInterface_GetMaxLinearVelocity(const JPC_BodyInterface *bi, JPC_BodyID id) { return ToJph(bi)->GetMaxLinearVelocity(ToJph(id)); }
 void JPC_BodyInterface_SetMaxLinearVelocity(JPC_BodyInterface *bi, JPC_BodyID id, float velocity) { ToJph(bi)->SetMaxLinearVelocity(ToJph(id), velocity); }
 float JPC_BodyInterface_GetMaxAngularVelocity(const JPC_BodyInterface *bi, JPC_BodyID id) { return ToJph(bi)->GetMaxAngularVelocity(ToJph(id)); }
 void JPC_BodyInterface_SetMaxAngularVelocity(JPC_BodyInterface *bi, JPC_BodyID id, float velocity) { ToJph(bi)->SetMaxAngularVelocity(ToJph(id), velocity); }
 bool JPC_BodyInterface_GetUseManifoldReduction(const JPC_BodyInterface *bi, JPC_BodyID id) { return ToJph(bi)->GetUseManifoldReduction(ToJph(id)); }
-void JPC_BodyInterface_SetUseManifoldReduction(JPC_BodyInterface *bi, JPC_BodyID id, bool use) { ToJph(bi)->SetUseManifoldReduction(ToJph(id), use); }
+void JPC_BodyInterface_SetUseManifoldReduction(JPC_BodyInterface *bi, JPC_BodyID id, bool use) { if (!IsSoftBody(bi, id)) ToJph(bi)->SetUseManifoldReduction(ToJph(id), use); }
 
 JPC_MotionType JPC_BodyInterface_GetMotionType(const JPC_BodyInterface *bi, JPC_BodyID id) { return (JPC_MotionType)ToJph(bi)->GetMotionType(ToJph(id)); }
 bool JPC_BodyInterface_SetMotionType(JPC_BodyInterface *bi, JPC_BodyID id, JPC_MotionType motion_type, JPC_Activation activation)
@@ -899,6 +931,11 @@ bool JPC_BodyInterface_SetMotionType(JPC_BodyInterface *bi, JPC_BodyID id, JPC_M
 	if (motion_type != JPC_MOTION_TYPE_STATIC && !HasMotionProperties(bi, id))
 	{
 		JPC_SetError("Body must be created with allow_dynamic_or_kinematic to become kinematic or dynamic");
+		return false;
+	}
+	if (motion_type != JPC_MOTION_TYPE_DYNAMIC && IsSoftBody(bi, id))
+	{
+		JPC_SetError("Soft bodies can only be dynamic; pin vertices with an inverse mass of 0 instead");
 		return false;
 	}
 	ToJph(bi)->SetMotionType(ToJph(id), (EMotionType)motion_type, ToJph(activation));
@@ -915,7 +952,7 @@ void JPC_BodyInterface_SetRestitution(JPC_BodyInterface *bi, JPC_BodyID id, floa
 float JPC_BodyInterface_GetGravityFactor(const JPC_BodyInterface *bi, JPC_BodyID id) { return ToJph(bi)->GetGravityFactor(ToJph(id)); }
 void JPC_BodyInterface_SetGravityFactor(JPC_BodyInterface *bi, JPC_BodyID id, float factor) { ToJph(bi)->SetGravityFactor(ToJph(id), factor); }
 bool JPC_BodyInterface_IsSensor(const JPC_BodyInterface *bi, JPC_BodyID id) { return ToJph(bi)->IsSensor(ToJph(id)); }
-void JPC_BodyInterface_SetIsSensor(JPC_BodyInterface *bi, JPC_BodyID id, bool is_sensor) { ToJph(bi)->SetIsSensor(ToJph(id), is_sensor); }
+void JPC_BodyInterface_SetIsSensor(JPC_BodyInterface *bi, JPC_BodyID id, bool is_sensor) { if (!RejectSoftBody(bi, id)) ToJph(bi)->SetIsSensor(ToJph(id), is_sensor); }
 uint64_t JPC_BodyInterface_GetUserData(const JPC_BodyInterface *bi, JPC_BodyID id) { return ToJph(bi)->GetUserData(ToJph(id)); }
 void JPC_BodyInterface_SetUserData(JPC_BodyInterface *bi, JPC_BodyID id, uint64_t user_data) { ToJph(bi)->SetUserData(ToJph(id), user_data); }
 void JPC_BodyInterface_InvalidateContactCache(JPC_BodyInterface *bi, JPC_BodyID id) { ToJph(bi)->InvalidateContactCache(ToJph(id)); }
@@ -933,7 +970,12 @@ JPC_Vec3 JPC_Body_GetLinearVelocity(const JPC_Body *body) { return ToC(ToJph(bod
 JPC_Vec3 JPC_Body_GetAngularVelocity(const JPC_Body *body) { return ToC(ToJph(body)->GetAngularVelocity()); }
 float JPC_Body_GetFriction(const JPC_Body *body) { return ToJph(body)->GetFriction(); }
 float JPC_Body_GetRestitution(const JPC_Body *body) { return ToJph(body)->GetRestitution(); }
-const JPC_Shape *JPC_Body_GetShape(const JPC_Body *body) { return reinterpret_cast<const JPC_Shape *>(ToJph(body)->GetShape()); }
+const JPC_Shape *JPC_Body_GetShape(const JPC_Body *body)
+{
+	const Body *b = ToJph(body);
+	return b->IsSoftBody() ? nullptr : reinterpret_cast<const JPC_Shape *>(b->GetShape());
+}
+bool JPC_Body_IsSoftBody(const JPC_Body *body) { return ToJph(body)->IsSoftBody(); }
 JPC_AABox JPC_Body_GetWorldSpaceBounds(const JPC_Body *body) { return ToC(ToJph(body)->GetWorldSpaceBounds()); }
 
 // ---------------------------------------------------------------------------
@@ -1045,8 +1087,33 @@ JPC_ShapeHit MakeShapeHit(const TransformedShape *inContext, const CollideShapeR
 	hit.fraction = inFraction;
 	hit.is_back_face_hit = inBackFace;
 	hit.material = inContext != nullptr ? ToC(inContext->GetMaterial(inResult.mSubShapeID2)) : nullptr;
+	hit.face1 = nullptr;
+	hit.num_face1 = 0;
+	hit.face2 = nullptr;
+	hit.num_face2 = 0;
 	return hit;
 }
+
+// Converted faces for one hit; must outlive the collector callback
+struct HitFaces
+{
+	JPC_Vec3				mFace1[CollideShapeResult::Face::Capacity];
+	JPC_Vec3				mFace2[CollideShapeResult::Face::Capacity];
+
+	void					Fill(const CollideShapeResult &inResult, JPC_ShapeHit &ioHit)
+	{
+		if (inResult.mShape1Face.empty() && inResult.mShape2Face.empty())
+			return;
+		for (uint i = 0; i < inResult.mShape1Face.size(); ++i)
+			mFace1[i] = ToC(inResult.mShape1Face[i]);
+		for (uint i = 0; i < inResult.mShape2Face.size(); ++i)
+			mFace2[i] = ToC(inResult.mShape2Face[i]);
+		ioHit.face1 = mFace1;
+		ioHit.num_face1 = uint32_t(inResult.mShape1Face.size());
+		ioHit.face2 = mFace2;
+		ioHit.num_face2 = uint32_t(inResult.mShape2Face.size());
+	}
+};
 
 class CallbackCollideShapeCollector final : public CollideShapeCollector
 {
@@ -1056,6 +1123,8 @@ public:
 	virtual void			AddHit(const CollideShapeResult &inResult) override
 	{
 		JPC_ShapeHit hit = MakeShapeHit(GetContext(), inResult, 0.0f, false);
+		HitFaces faces;
+		faces.Fill(inResult, hit);
 		if (!mFn(mUserData, &hit))
 			ForceEarlyOut();
 	}
@@ -1073,6 +1142,8 @@ public:
 	virtual void			AddHit(const ShapeCastResult &inResult) override
 	{
 		JPC_ShapeHit hit = MakeShapeHit(GetContext(), inResult, inResult.mFraction, inResult.mIsBackFaceHit);
+		HitFaces faces;
+		faces.Fill(inResult, hit);
 		if (!mFn(mUserData, &hit))
 			ForceEarlyOut();
 	}
@@ -1296,6 +1367,12 @@ static JPC_Constraint *CreateConstraint(JPC_PhysicsSystem *inSystem, TwoBodyCons
 	if ((inBody1 != JPC_BODY_ID_INVALID && body1 == nullptr) || (inBody2 != JPC_BODY_ID_INVALID && body2 == nullptr))
 	{
 		JPC_SetError("Constraint body does not exist");
+		return nullptr;
+	}
+	// Jolt would link a soft body's index into the rigid island builder and corrupt the islands
+	if ((body1 != nullptr && body1->IsSoftBody()) || (body2 != nullptr && body2->IsSoftBody()))
+	{
+		JPC_SetError("Constraints cannot use soft bodies; pin vertices with an inverse mass of 0 instead");
 		return nullptr;
 	}
 	if (body1 == nullptr && body2 == nullptr)
@@ -1796,6 +1873,7 @@ void JPC_CollideShapeSettings_SetDefault(JPC_CollideShapeSettings *out)
 	out->active_edge_movement_direction = ToC(s.mActiveEdgeMovementDirection);
 	out->collision_tolerance = s.mCollisionTolerance;
 	out->penetration_tolerance = s.mPenetrationTolerance;
+	out->collect_faces = s.mCollectFacesMode == ECollectFacesMode::CollectFaces;
 }
 
 void JPC_ShapeCastSettings_SetDefault(JPC_ShapeCastSettings *out)
@@ -1809,6 +1887,7 @@ void JPC_ShapeCastSettings_SetDefault(JPC_ShapeCastSettings *out)
 	out->active_edge_movement_direction = ToC(s.mActiveEdgeMovementDirection);
 	out->collision_tolerance = s.mCollisionTolerance;
 	out->penetration_tolerance = s.mPenetrationTolerance;
+	out->collect_faces = s.mCollectFacesMode == ECollectFacesMode::CollectFaces;
 }
 
 static RayCastSettings ToJph(const JPC_RayCastSettings *in)
@@ -1851,6 +1930,7 @@ void JPC_PhysicsSystem_CollideShapeWithSettings(const JPC_PhysicsSystem *system,
 		settings.mActiveEdgeMovementDirection = ToJph(in->active_edge_movement_direction);
 		settings.mCollisionTolerance = in->collision_tolerance;
 		settings.mPenetrationTolerance = in->penetration_tolerance;
+		settings.mCollectFacesMode = in->collect_faces ? ECollectFacesMode::CollectFaces : ECollectFacesMode::NoFaces;
 	}
 	QueryFilters filters(*system, filter);
 	CallbackCollideShapeCollector collector(collector_fn, user_data);
@@ -1873,6 +1953,7 @@ void JPC_PhysicsSystem_CastShapeWithSettings(const JPC_PhysicsSystem *system, co
 		settings.mActiveEdgeMovementDirection = ToJph(in->active_edge_movement_direction);
 		settings.mCollisionTolerance = in->collision_tolerance;
 		settings.mPenetrationTolerance = in->penetration_tolerance;
+		settings.mCollectFacesMode = in->collect_faces ? ECollectFacesMode::CollectFaces : ECollectFacesMode::NoFaces;
 	}
 	QueryFilters filters(*system, filter);
 	CallbackCastShapeCollector collector(collector_fn, user_data);

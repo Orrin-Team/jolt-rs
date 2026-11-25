@@ -92,6 +92,8 @@ pub struct CollideShapeSettings {
     pub active_edge_movement_direction: Vec3,
     pub collision_tolerance: f32,
     pub penetration_tolerance: f32,
+    /// Report the touching faces of both shapes in [`ShapeHit::face1`] and [`ShapeHit::face2`].
+    pub collect_faces: bool,
 }
 
 impl Default for CollideShapeSettings {
@@ -105,6 +107,7 @@ impl Default for CollideShapeSettings {
             active_edge_movement_direction: d.active_edge_movement_direction.into(),
             collision_tolerance: d.collision_tolerance,
             penetration_tolerance: d.penetration_tolerance,
+            collect_faces: d.collect_faces,
         }
     }
 }
@@ -118,6 +121,7 @@ impl CollideShapeSettings {
             active_edge_movement_direction: self.active_edge_movement_direction.into(),
             collision_tolerance: self.collision_tolerance,
             penetration_tolerance: self.penetration_tolerance,
+            collect_faces: self.collect_faces,
         }
     }
 }
@@ -135,6 +139,8 @@ pub struct ShapeCastSettings {
     pub active_edge_movement_direction: Vec3,
     pub collision_tolerance: f32,
     pub penetration_tolerance: f32,
+    /// Report the touching faces of both shapes in [`ShapeHit::face1`] and [`ShapeHit::face2`].
+    pub collect_faces: bool,
 }
 
 impl Default for ShapeCastSettings {
@@ -150,6 +156,7 @@ impl Default for ShapeCastSettings {
             active_edge_movement_direction: d.active_edge_movement_direction.into(),
             collision_tolerance: d.collision_tolerance,
             penetration_tolerance: d.penetration_tolerance,
+            collect_faces: d.collect_faces,
         }
     }
 }
@@ -165,6 +172,7 @@ impl ShapeCastSettings {
             active_edge_movement_direction: self.active_edge_movement_direction.into(),
             collision_tolerance: self.collision_tolerance,
             penetration_tolerance: self.penetration_tolerance,
+            collect_faces: self.collect_faces,
         }
     }
 }
@@ -248,6 +256,10 @@ pub struct ShapeHit {
     pub is_back_face_hit: bool,
     /// Material of the hit body at `sub_shape_id2`, `None` for the default material.
     pub material: Option<PhysicsMaterial>,
+    /// With `collect_faces` on: the touching face of the query shape, in world space. Empty otherwise.
+    pub face1: Vec<Vec3>,
+    /// With `collect_faces` on: the touching face of the hit shape, in world space. Empty otherwise.
+    pub face2: Vec<Vec3>,
 }
 
 impl ShapeHit {
@@ -270,8 +282,18 @@ impl From<&sys::JPC_ShapeHit> for ShapeHit {
             fraction: h.fraction,
             is_back_face_hit: h.is_back_face_hit,
             material: PhysicsMaterial::from_borrowed(h.material),
+            face1: face(h.face1, h.num_face1),
+            face2: face(h.face2, h.num_face2),
         }
     }
+}
+
+fn face(points: *const sys::JPC_Vec3, count: u32) -> Vec<Vec3> {
+    if points.is_null() || count == 0 {
+        return Vec::new();
+    }
+    // SAFETY: joltc hands out `count` points that stay valid during the collector callback, where this runs.
+    unsafe { std::slice::from_raw_parts(points, count as usize) }.iter().map(|&p| p.into()).collect()
 }
 
 /// Everything a query's callbacks need, kept alive on the stack for the duration of the call.

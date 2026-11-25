@@ -14,6 +14,8 @@ target_sources(Jolt PRIVATE
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/joltc_vehicle.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/joltc_ragdoll.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/joltc_shape.cpp"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/joltc_animation.cpp"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/joltc_softbody.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/joltc_internal.h")
 target_include_directories(Jolt PUBLIC "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>")
 

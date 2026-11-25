@@ -329,6 +329,21 @@ pub struct JPC_RagdollSettings {
 pub struct JPC_Ragdoll {
     _unused: [u8; 0],
 }
+#[repr(C)]
+#[derive(Debug)]
+pub struct JPC_SkeletalAnimation {
+    _unused: [u8; 0],
+}
+#[repr(C)]
+#[derive(Debug)]
+pub struct JPC_SkeletonMapper {
+    _unused: [u8; 0],
+}
+#[repr(C)]
+#[derive(Debug)]
+pub struct JPC_SoftBodySharedSettings {
+    _unused: [u8; 0],
+}
 pub type JPC_TraceFn =
     ::core::option::Option<unsafe extern "C" fn(message: *const ::core::ffi::c_char)>;
 pub type JPC_AssertFailedFn = ::core::option::Option<
@@ -1801,7 +1816,472 @@ unsafe extern "C" {
     pub fn JPC_Body_GetShape(body: *const JPC_Body) -> *const JPC_Shape;
 }
 unsafe extern "C" {
+    pub fn JPC_Body_IsSoftBody(body: *const JPC_Body) -> bool;
+}
+unsafe extern "C" {
     pub fn JPC_Body_GetWorldSpaceBounds(body: *const JPC_Body) -> JPC_AABox;
+}
+pub const JPC_SOFT_BODY_BEND_TYPE_NONE: JPC_SoftBodyBendType = 0;
+pub const JPC_SOFT_BODY_BEND_TYPE_DISTANCE: JPC_SoftBodyBendType = 1;
+pub const JPC_SOFT_BODY_BEND_TYPE_DIHEDRAL: JPC_SoftBodyBendType = 2;
+pub type JPC_SoftBodyBendType = ::core::ffi::c_uint;
+pub const JPC_SOFT_BODY_LRA_TYPE_NONE: JPC_SoftBodyLRAType = 0;
+pub const JPC_SOFT_BODY_LRA_TYPE_EUCLIDEAN_DISTANCE: JPC_SoftBodyLRAType = 1;
+pub const JPC_SOFT_BODY_LRA_TYPE_GEODESIC_DISTANCE: JPC_SoftBodyLRAType = 2;
+pub type JPC_SoftBodyLRAType = ::core::ffi::c_uint;
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone)]
+pub struct JPC_SoftBodyVertex {
+    pub position: JPC_Vec3,
+    pub velocity: JPC_Vec3,
+    pub inv_mass: f32,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of JPC_SoftBodyVertex"][::core::mem::size_of::<JPC_SoftBodyVertex>() - 28usize];
+    ["Alignment of JPC_SoftBodyVertex"][::core::mem::align_of::<JPC_SoftBodyVertex>() - 4usize];
+    ["Offset of field: JPC_SoftBodyVertex::position"]
+        [::core::mem::offset_of!(JPC_SoftBodyVertex, position) - 0usize];
+    ["Offset of field: JPC_SoftBodyVertex::velocity"]
+        [::core::mem::offset_of!(JPC_SoftBodyVertex, velocity) - 12usize];
+    ["Offset of field: JPC_SoftBodyVertex::inv_mass"]
+        [::core::mem::offset_of!(JPC_SoftBodyVertex, inv_mass) - 24usize];
+};
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone)]
+pub struct JPC_SoftBodyFace {
+    pub vertices: [u32; 3usize],
+    pub material_index: u32,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of JPC_SoftBodyFace"][::core::mem::size_of::<JPC_SoftBodyFace>() - 16usize];
+    ["Alignment of JPC_SoftBodyFace"][::core::mem::align_of::<JPC_SoftBodyFace>() - 4usize];
+    ["Offset of field: JPC_SoftBodyFace::vertices"]
+        [::core::mem::offset_of!(JPC_SoftBodyFace, vertices) - 0usize];
+    ["Offset of field: JPC_SoftBodyFace::material_index"]
+        [::core::mem::offset_of!(JPC_SoftBodyFace, material_index) - 12usize];
+};
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone)]
+pub struct JPC_SoftBodyEdge {
+    pub vertices: [u32; 2usize],
+    pub compliance: f32,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of JPC_SoftBodyEdge"][::core::mem::size_of::<JPC_SoftBodyEdge>() - 12usize];
+    ["Alignment of JPC_SoftBodyEdge"][::core::mem::align_of::<JPC_SoftBodyEdge>() - 4usize];
+    ["Offset of field: JPC_SoftBodyEdge::vertices"]
+        [::core::mem::offset_of!(JPC_SoftBodyEdge, vertices) - 0usize];
+    ["Offset of field: JPC_SoftBodyEdge::compliance"]
+        [::core::mem::offset_of!(JPC_SoftBodyEdge, compliance) - 8usize];
+};
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone)]
+pub struct JPC_SoftBodyDihedralBend {
+    pub vertices: [u32; 4usize],
+    pub compliance: f32,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of JPC_SoftBodyDihedralBend"]
+        [::core::mem::size_of::<JPC_SoftBodyDihedralBend>() - 20usize];
+    ["Alignment of JPC_SoftBodyDihedralBend"]
+        [::core::mem::align_of::<JPC_SoftBodyDihedralBend>() - 4usize];
+    ["Offset of field: JPC_SoftBodyDihedralBend::vertices"]
+        [::core::mem::offset_of!(JPC_SoftBodyDihedralBend, vertices) - 0usize];
+    ["Offset of field: JPC_SoftBodyDihedralBend::compliance"]
+        [::core::mem::offset_of!(JPC_SoftBodyDihedralBend, compliance) - 16usize];
+};
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone)]
+pub struct JPC_SoftBodyVolume {
+    pub vertices: [u32; 4usize],
+    pub compliance: f32,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of JPC_SoftBodyVolume"][::core::mem::size_of::<JPC_SoftBodyVolume>() - 20usize];
+    ["Alignment of JPC_SoftBodyVolume"][::core::mem::align_of::<JPC_SoftBodyVolume>() - 4usize];
+    ["Offset of field: JPC_SoftBodyVolume::vertices"]
+        [::core::mem::offset_of!(JPC_SoftBodyVolume, vertices) - 0usize];
+    ["Offset of field: JPC_SoftBodyVolume::compliance"]
+        [::core::mem::offset_of!(JPC_SoftBodyVolume, compliance) - 16usize];
+};
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone)]
+pub struct JPC_SoftBodyLRA {
+    pub vertices: [u32; 2usize],
+    pub max_distance_multiplier: f32,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of JPC_SoftBodyLRA"][::core::mem::size_of::<JPC_SoftBodyLRA>() - 12usize];
+    ["Alignment of JPC_SoftBodyLRA"][::core::mem::align_of::<JPC_SoftBodyLRA>() - 4usize];
+    ["Offset of field: JPC_SoftBodyLRA::vertices"]
+        [::core::mem::offset_of!(JPC_SoftBodyLRA, vertices) - 0usize];
+    ["Offset of field: JPC_SoftBodyLRA::max_distance_multiplier"]
+        [::core::mem::offset_of!(JPC_SoftBodyLRA, max_distance_multiplier) - 8usize];
+};
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct JPC_SoftBodyVertexAttributes {
+    pub compliance: f32,
+    pub shear_compliance: f32,
+    pub bend_compliance: f32,
+    pub lra_type: JPC_SoftBodyLRAType,
+    pub lra_max_distance_multiplier: f32,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of JPC_SoftBodyVertexAttributes"]
+        [::core::mem::size_of::<JPC_SoftBodyVertexAttributes>() - 20usize];
+    ["Alignment of JPC_SoftBodyVertexAttributes"]
+        [::core::mem::align_of::<JPC_SoftBodyVertexAttributes>() - 4usize];
+    ["Offset of field: JPC_SoftBodyVertexAttributes::compliance"]
+        [::core::mem::offset_of!(JPC_SoftBodyVertexAttributes, compliance) - 0usize];
+    ["Offset of field: JPC_SoftBodyVertexAttributes::shear_compliance"]
+        [::core::mem::offset_of!(JPC_SoftBodyVertexAttributes, shear_compliance) - 4usize];
+    ["Offset of field: JPC_SoftBodyVertexAttributes::bend_compliance"]
+        [::core::mem::offset_of!(JPC_SoftBodyVertexAttributes, bend_compliance) - 8usize];
+    ["Offset of field: JPC_SoftBodyVertexAttributes::lra_type"]
+        [::core::mem::offset_of!(JPC_SoftBodyVertexAttributes, lra_type) - 12usize];
+    ["Offset of field: JPC_SoftBodyVertexAttributes::lra_max_distance_multiplier"][::core::mem::offset_of!(
+        JPC_SoftBodyVertexAttributes,
+        lra_max_distance_multiplier
+    ) - 16usize];
+};
+impl Default for JPC_SoftBodyVertexAttributes {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct JPC_SoftBodySharedSettingsDesc {
+    pub vertices: *const JPC_SoftBodyVertex,
+    pub num_vertices: u32,
+    pub faces: *const JPC_SoftBodyFace,
+    pub num_faces: u32,
+    pub materials: *const *const JPC_PhysicsMaterial,
+    pub num_materials: u32,
+    pub vertex_attributes: *const JPC_SoftBodyVertexAttributes,
+    pub num_vertex_attributes: u32,
+    pub bend_type: JPC_SoftBodyBendType,
+    pub angle_tolerance: f32,
+    pub edges: *const JPC_SoftBodyEdge,
+    pub num_edges: u32,
+    pub dihedral_bends: *const JPC_SoftBodyDihedralBend,
+    pub num_dihedral_bends: u32,
+    pub volumes: *const JPC_SoftBodyVolume,
+    pub num_volumes: u32,
+    pub lras: *const JPC_SoftBodyLRA,
+    pub num_lras: u32,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of JPC_SoftBodySharedSettingsDesc"]
+        [::core::mem::size_of::<JPC_SoftBodySharedSettingsDesc>() - 136usize];
+    ["Alignment of JPC_SoftBodySharedSettingsDesc"]
+        [::core::mem::align_of::<JPC_SoftBodySharedSettingsDesc>() - 8usize];
+    ["Offset of field: JPC_SoftBodySharedSettingsDesc::vertices"]
+        [::core::mem::offset_of!(JPC_SoftBodySharedSettingsDesc, vertices) - 0usize];
+    ["Offset of field: JPC_SoftBodySharedSettingsDesc::num_vertices"]
+        [::core::mem::offset_of!(JPC_SoftBodySharedSettingsDesc, num_vertices) - 8usize];
+    ["Offset of field: JPC_SoftBodySharedSettingsDesc::faces"]
+        [::core::mem::offset_of!(JPC_SoftBodySharedSettingsDesc, faces) - 16usize];
+    ["Offset of field: JPC_SoftBodySharedSettingsDesc::num_faces"]
+        [::core::mem::offset_of!(JPC_SoftBodySharedSettingsDesc, num_faces) - 24usize];
+    ["Offset of field: JPC_SoftBodySharedSettingsDesc::materials"]
+        [::core::mem::offset_of!(JPC_SoftBodySharedSettingsDesc, materials) - 32usize];
+    ["Offset of field: JPC_SoftBodySharedSettingsDesc::num_materials"]
+        [::core::mem::offset_of!(JPC_SoftBodySharedSettingsDesc, num_materials) - 40usize];
+    ["Offset of field: JPC_SoftBodySharedSettingsDesc::vertex_attributes"]
+        [::core::mem::offset_of!(JPC_SoftBodySharedSettingsDesc, vertex_attributes) - 48usize];
+    ["Offset of field: JPC_SoftBodySharedSettingsDesc::num_vertex_attributes"]
+        [::core::mem::offset_of!(JPC_SoftBodySharedSettingsDesc, num_vertex_attributes) - 56usize];
+    ["Offset of field: JPC_SoftBodySharedSettingsDesc::bend_type"]
+        [::core::mem::offset_of!(JPC_SoftBodySharedSettingsDesc, bend_type) - 60usize];
+    ["Offset of field: JPC_SoftBodySharedSettingsDesc::angle_tolerance"]
+        [::core::mem::offset_of!(JPC_SoftBodySharedSettingsDesc, angle_tolerance) - 64usize];
+    ["Offset of field: JPC_SoftBodySharedSettingsDesc::edges"]
+        [::core::mem::offset_of!(JPC_SoftBodySharedSettingsDesc, edges) - 72usize];
+    ["Offset of field: JPC_SoftBodySharedSettingsDesc::num_edges"]
+        [::core::mem::offset_of!(JPC_SoftBodySharedSettingsDesc, num_edges) - 80usize];
+    ["Offset of field: JPC_SoftBodySharedSettingsDesc::dihedral_bends"]
+        [::core::mem::offset_of!(JPC_SoftBodySharedSettingsDesc, dihedral_bends) - 88usize];
+    ["Offset of field: JPC_SoftBodySharedSettingsDesc::num_dihedral_bends"]
+        [::core::mem::offset_of!(JPC_SoftBodySharedSettingsDesc, num_dihedral_bends) - 96usize];
+    ["Offset of field: JPC_SoftBodySharedSettingsDesc::volumes"]
+        [::core::mem::offset_of!(JPC_SoftBodySharedSettingsDesc, volumes) - 104usize];
+    ["Offset of field: JPC_SoftBodySharedSettingsDesc::num_volumes"]
+        [::core::mem::offset_of!(JPC_SoftBodySharedSettingsDesc, num_volumes) - 112usize];
+    ["Offset of field: JPC_SoftBodySharedSettingsDesc::lras"]
+        [::core::mem::offset_of!(JPC_SoftBodySharedSettingsDesc, lras) - 120usize];
+    ["Offset of field: JPC_SoftBodySharedSettingsDesc::num_lras"]
+        [::core::mem::offset_of!(JPC_SoftBodySharedSettingsDesc, num_lras) - 128usize];
+};
+impl Default for JPC_SoftBodySharedSettingsDesc {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone)]
+pub struct JPC_SoftBodySharedSettingsCounts {
+    pub vertices: u32,
+    pub faces: u32,
+    pub edges: u32,
+    pub dihedral_bends: u32,
+    pub volumes: u32,
+    pub lras: u32,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of JPC_SoftBodySharedSettingsCounts"]
+        [::core::mem::size_of::<JPC_SoftBodySharedSettingsCounts>() - 24usize];
+    ["Alignment of JPC_SoftBodySharedSettingsCounts"]
+        [::core::mem::align_of::<JPC_SoftBodySharedSettingsCounts>() - 4usize];
+    ["Offset of field: JPC_SoftBodySharedSettingsCounts::vertices"]
+        [::core::mem::offset_of!(JPC_SoftBodySharedSettingsCounts, vertices) - 0usize];
+    ["Offset of field: JPC_SoftBodySharedSettingsCounts::faces"]
+        [::core::mem::offset_of!(JPC_SoftBodySharedSettingsCounts, faces) - 4usize];
+    ["Offset of field: JPC_SoftBodySharedSettingsCounts::edges"]
+        [::core::mem::offset_of!(JPC_SoftBodySharedSettingsCounts, edges) - 8usize];
+    ["Offset of field: JPC_SoftBodySharedSettingsCounts::dihedral_bends"]
+        [::core::mem::offset_of!(JPC_SoftBodySharedSettingsCounts, dihedral_bends) - 12usize];
+    ["Offset of field: JPC_SoftBodySharedSettingsCounts::volumes"]
+        [::core::mem::offset_of!(JPC_SoftBodySharedSettingsCounts, volumes) - 16usize];
+    ["Offset of field: JPC_SoftBodySharedSettingsCounts::lras"]
+        [::core::mem::offset_of!(JPC_SoftBodySharedSettingsCounts, lras) - 20usize];
+};
+unsafe extern "C" {
+    pub fn JPC_SoftBodyVertexAttributes_SetDefault(attributes: *mut JPC_SoftBodyVertexAttributes);
+}
+unsafe extern "C" {
+    pub fn JPC_SoftBodySharedSettingsDesc_SetDefault(desc: *mut JPC_SoftBodySharedSettingsDesc);
+}
+unsafe extern "C" {
+    pub fn JPC_SoftBodySharedSettings_Create(
+        desc: *const JPC_SoftBodySharedSettingsDesc,
+    ) -> *mut JPC_SoftBodySharedSettings;
+}
+unsafe extern "C" {
+    pub fn JPC_SoftBodySharedSettings_CreateCube(
+        grid_size: u32,
+        spacing: f32,
+    ) -> *mut JPC_SoftBodySharedSettings;
+}
+unsafe extern "C" {
+    pub fn JPC_SoftBodySharedSettings_AddRef(settings: *const JPC_SoftBodySharedSettings);
+}
+unsafe extern "C" {
+    pub fn JPC_SoftBodySharedSettings_Release(settings: *const JPC_SoftBodySharedSettings);
+}
+unsafe extern "C" {
+    pub fn JPC_SoftBodySharedSettings_GetCounts(
+        settings: *const JPC_SoftBodySharedSettings,
+        out_counts: *mut JPC_SoftBodySharedSettingsCounts,
+    );
+}
+unsafe extern "C" {
+    pub fn JPC_SoftBodySharedSettings_GetFaces(
+        settings: *const JPC_SoftBodySharedSettings,
+        out_faces: *mut JPC_SoftBodyFace,
+        capacity: u32,
+    ) -> u32;
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct JPC_SoftBodyCreationSettings {
+    pub settings: *const JPC_SoftBodySharedSettings,
+    pub position: JPC_RVec3,
+    pub rotation: JPC_Quat,
+    pub user_data: u64,
+    pub object_layer: JPC_ObjectLayer,
+    pub collision_group: JPC_CollisionGroup,
+    pub num_iterations: u32,
+    pub linear_damping: f32,
+    pub max_linear_velocity: f32,
+    pub restitution: f32,
+    pub friction: f32,
+    pub pressure: f32,
+    pub gravity_factor: f32,
+    pub vertex_radius: f32,
+    pub update_position: bool,
+    pub make_rotation_identity: bool,
+    pub allow_sleeping: bool,
+    pub faces_double_sided: bool,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of JPC_SoftBodyCreationSettings"]
+        [::core::mem::size_of::<JPC_SoftBodyCreationSettings>() - 112usize];
+    ["Alignment of JPC_SoftBodyCreationSettings"]
+        [::core::mem::align_of::<JPC_SoftBodyCreationSettings>() - 8usize];
+    ["Offset of field: JPC_SoftBodyCreationSettings::settings"]
+        [::core::mem::offset_of!(JPC_SoftBodyCreationSettings, settings) - 0usize];
+    ["Offset of field: JPC_SoftBodyCreationSettings::position"]
+        [::core::mem::offset_of!(JPC_SoftBodyCreationSettings, position) - 8usize];
+    ["Offset of field: JPC_SoftBodyCreationSettings::rotation"]
+        [::core::mem::offset_of!(JPC_SoftBodyCreationSettings, rotation) - 20usize];
+    ["Offset of field: JPC_SoftBodyCreationSettings::user_data"]
+        [::core::mem::offset_of!(JPC_SoftBodyCreationSettings, user_data) - 40usize];
+    ["Offset of field: JPC_SoftBodyCreationSettings::object_layer"]
+        [::core::mem::offset_of!(JPC_SoftBodyCreationSettings, object_layer) - 48usize];
+    ["Offset of field: JPC_SoftBodyCreationSettings::collision_group"]
+        [::core::mem::offset_of!(JPC_SoftBodyCreationSettings, collision_group) - 56usize];
+    ["Offset of field: JPC_SoftBodyCreationSettings::num_iterations"]
+        [::core::mem::offset_of!(JPC_SoftBodyCreationSettings, num_iterations) - 72usize];
+    ["Offset of field: JPC_SoftBodyCreationSettings::linear_damping"]
+        [::core::mem::offset_of!(JPC_SoftBodyCreationSettings, linear_damping) - 76usize];
+    ["Offset of field: JPC_SoftBodyCreationSettings::max_linear_velocity"]
+        [::core::mem::offset_of!(JPC_SoftBodyCreationSettings, max_linear_velocity) - 80usize];
+    ["Offset of field: JPC_SoftBodyCreationSettings::restitution"]
+        [::core::mem::offset_of!(JPC_SoftBodyCreationSettings, restitution) - 84usize];
+    ["Offset of field: JPC_SoftBodyCreationSettings::friction"]
+        [::core::mem::offset_of!(JPC_SoftBodyCreationSettings, friction) - 88usize];
+    ["Offset of field: JPC_SoftBodyCreationSettings::pressure"]
+        [::core::mem::offset_of!(JPC_SoftBodyCreationSettings, pressure) - 92usize];
+    ["Offset of field: JPC_SoftBodyCreationSettings::gravity_factor"]
+        [::core::mem::offset_of!(JPC_SoftBodyCreationSettings, gravity_factor) - 96usize];
+    ["Offset of field: JPC_SoftBodyCreationSettings::vertex_radius"]
+        [::core::mem::offset_of!(JPC_SoftBodyCreationSettings, vertex_radius) - 100usize];
+    ["Offset of field: JPC_SoftBodyCreationSettings::update_position"]
+        [::core::mem::offset_of!(JPC_SoftBodyCreationSettings, update_position) - 104usize];
+    ["Offset of field: JPC_SoftBodyCreationSettings::make_rotation_identity"]
+        [::core::mem::offset_of!(JPC_SoftBodyCreationSettings, make_rotation_identity) - 105usize];
+    ["Offset of field: JPC_SoftBodyCreationSettings::allow_sleeping"]
+        [::core::mem::offset_of!(JPC_SoftBodyCreationSettings, allow_sleeping) - 106usize];
+    ["Offset of field: JPC_SoftBodyCreationSettings::faces_double_sided"]
+        [::core::mem::offset_of!(JPC_SoftBodyCreationSettings, faces_double_sided) - 107usize];
+};
+impl Default for JPC_SoftBodyCreationSettings {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+unsafe extern "C" {
+    pub fn JPC_SoftBodyCreationSettings_SetDefault(settings: *mut JPC_SoftBodyCreationSettings);
+}
+unsafe extern "C" {
+    pub fn JPC_BodyInterface_CreateSoftBody(
+        bi: *mut JPC_BodyInterface,
+        settings: *const JPC_SoftBodyCreationSettings,
+    ) -> JPC_BodyID;
+}
+unsafe extern "C" {
+    pub fn JPC_BodyInterface_CreateAndAddSoftBody(
+        bi: *mut JPC_BodyInterface,
+        settings: *const JPC_SoftBodyCreationSettings,
+        activation: JPC_Activation,
+    ) -> JPC_BodyID;
+}
+unsafe extern "C" {
+    pub fn JPC_BodyInterface_IsSoftBody(bi: *const JPC_BodyInterface, id: JPC_BodyID) -> bool;
+}
+unsafe extern "C" {
+    pub fn JPC_BodyInterface_GetSoftBodySharedSettings(
+        bi: *const JPC_BodyInterface,
+        id: JPC_BodyID,
+    ) -> *mut JPC_SoftBodySharedSettings;
+}
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone)]
+pub struct JPC_SoftBodyVertexState {
+    pub position: JPC_Vec3,
+    pub velocity: JPC_Vec3,
+    pub inv_mass: f32,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of JPC_SoftBodyVertexState"]
+        [::core::mem::size_of::<JPC_SoftBodyVertexState>() - 28usize];
+    ["Alignment of JPC_SoftBodyVertexState"]
+        [::core::mem::align_of::<JPC_SoftBodyVertexState>() - 4usize];
+    ["Offset of field: JPC_SoftBodyVertexState::position"]
+        [::core::mem::offset_of!(JPC_SoftBodyVertexState, position) - 0usize];
+    ["Offset of field: JPC_SoftBodyVertexState::velocity"]
+        [::core::mem::offset_of!(JPC_SoftBodyVertexState, velocity) - 12usize];
+    ["Offset of field: JPC_SoftBodyVertexState::inv_mass"]
+        [::core::mem::offset_of!(JPC_SoftBodyVertexState, inv_mass) - 24usize];
+};
+unsafe extern "C" {
+    pub fn JPC_BodyInterface_GetSoftBodyVertices(
+        bi: *const JPC_BodyInterface,
+        id: JPC_BodyID,
+        first: u32,
+        out_vertices: *mut JPC_SoftBodyVertexState,
+        capacity: u32,
+        world_space: bool,
+    ) -> u32;
+}
+unsafe extern "C" {
+    pub fn JPC_BodyInterface_SetSoftBodyVertices(
+        bi: *mut JPC_BodyInterface,
+        id: JPC_BodyID,
+        first: u32,
+        vertices: *const JPC_SoftBodyVertexState,
+        count: u32,
+        world_space: bool,
+        activation: JPC_Activation,
+    ) -> bool;
+}
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone)]
+pub struct JPC_SoftBodyProperties {
+    pub num_iterations: u32,
+    pub pressure: f32,
+    pub vertex_radius: f32,
+    pub update_position: bool,
+    pub faces_double_sided: bool,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of JPC_SoftBodyProperties"][::core::mem::size_of::<JPC_SoftBodyProperties>() - 16usize];
+    ["Alignment of JPC_SoftBodyProperties"]
+        [::core::mem::align_of::<JPC_SoftBodyProperties>() - 4usize];
+    ["Offset of field: JPC_SoftBodyProperties::num_iterations"]
+        [::core::mem::offset_of!(JPC_SoftBodyProperties, num_iterations) - 0usize];
+    ["Offset of field: JPC_SoftBodyProperties::pressure"]
+        [::core::mem::offset_of!(JPC_SoftBodyProperties, pressure) - 4usize];
+    ["Offset of field: JPC_SoftBodyProperties::vertex_radius"]
+        [::core::mem::offset_of!(JPC_SoftBodyProperties, vertex_radius) - 8usize];
+    ["Offset of field: JPC_SoftBodyProperties::update_position"]
+        [::core::mem::offset_of!(JPC_SoftBodyProperties, update_position) - 12usize];
+    ["Offset of field: JPC_SoftBodyProperties::faces_double_sided"]
+        [::core::mem::offset_of!(JPC_SoftBodyProperties, faces_double_sided) - 13usize];
+};
+unsafe extern "C" {
+    pub fn JPC_BodyInterface_GetSoftBodyProperties(
+        bi: *const JPC_BodyInterface,
+        id: JPC_BodyID,
+        out_properties: *mut JPC_SoftBodyProperties,
+    ) -> bool;
+}
+unsafe extern "C" {
+    pub fn JPC_BodyInterface_SetSoftBodyProperties(
+        bi: *mut JPC_BodyInterface,
+        id: JPC_BodyID,
+        properties: *const JPC_SoftBodyProperties,
+    ) -> bool;
+}
+unsafe extern "C" {
+    pub fn JPC_BodyInterface_GetSoftBodyVolume(bi: *const JPC_BodyInterface, id: JPC_BodyID)
+    -> f32;
 }
 pub type JPC_BodyFilterFn = ::core::option::Option<
     unsafe extern "C" fn(user_data: *mut ::core::ffi::c_void, body_id: JPC_BodyID) -> bool,
@@ -1933,10 +2413,14 @@ pub struct JPC_ShapeHit {
     pub fraction: f32,
     pub is_back_face_hit: bool,
     pub material: *const JPC_PhysicsMaterial,
+    pub face1: *const JPC_Vec3,
+    pub num_face1: u32,
+    pub face2: *const JPC_Vec3,
+    pub num_face2: u32,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of JPC_ShapeHit"][::core::mem::size_of::<JPC_ShapeHit>() - 72usize];
+    ["Size of JPC_ShapeHit"][::core::mem::size_of::<JPC_ShapeHit>() - 104usize];
     ["Alignment of JPC_ShapeHit"][::core::mem::align_of::<JPC_ShapeHit>() - 8usize];
     ["Offset of field: JPC_ShapeHit::body_id"]
         [::core::mem::offset_of!(JPC_ShapeHit, body_id) - 0usize];
@@ -1958,6 +2442,14 @@ const _: () = {
         [::core::mem::offset_of!(JPC_ShapeHit, is_back_face_hit) - 56usize];
     ["Offset of field: JPC_ShapeHit::material"]
         [::core::mem::offset_of!(JPC_ShapeHit, material) - 64usize];
+    ["Offset of field: JPC_ShapeHit::face1"]
+        [::core::mem::offset_of!(JPC_ShapeHit, face1) - 72usize];
+    ["Offset of field: JPC_ShapeHit::num_face1"]
+        [::core::mem::offset_of!(JPC_ShapeHit, num_face1) - 80usize];
+    ["Offset of field: JPC_ShapeHit::face2"]
+        [::core::mem::offset_of!(JPC_ShapeHit, face2) - 88usize];
+    ["Offset of field: JPC_ShapeHit::num_face2"]
+        [::core::mem::offset_of!(JPC_ShapeHit, num_face2) - 96usize];
 };
 impl Default for JPC_ShapeHit {
     fn default() -> Self {
@@ -2033,11 +2525,12 @@ pub struct JPC_CollideShapeSettings {
     pub active_edge_movement_direction: JPC_Vec3,
     pub collision_tolerance: f32,
     pub penetration_tolerance: f32,
+    pub collect_faces: bool,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of JPC_CollideShapeSettings"]
-        [::core::mem::size_of::<JPC_CollideShapeSettings>() - 32usize];
+        [::core::mem::size_of::<JPC_CollideShapeSettings>() - 36usize];
     ["Alignment of JPC_CollideShapeSettings"]
         [::core::mem::align_of::<JPC_CollideShapeSettings>() - 4usize];
     ["Offset of field: JPC_CollideShapeSettings::max_separation_distance"]
@@ -2054,6 +2547,8 @@ const _: () = {
         [::core::mem::offset_of!(JPC_CollideShapeSettings, collision_tolerance) - 24usize];
     ["Offset of field: JPC_CollideShapeSettings::penetration_tolerance"]
         [::core::mem::offset_of!(JPC_CollideShapeSettings, penetration_tolerance) - 28usize];
+    ["Offset of field: JPC_CollideShapeSettings::collect_faces"]
+        [::core::mem::offset_of!(JPC_CollideShapeSettings, collect_faces) - 32usize];
 };
 impl Default for JPC_CollideShapeSettings {
     fn default() -> Self {
@@ -2075,10 +2570,11 @@ pub struct JPC_ShapeCastSettings {
     pub active_edge_movement_direction: JPC_Vec3,
     pub collision_tolerance: f32,
     pub penetration_tolerance: f32,
+    pub collect_faces: bool,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of JPC_ShapeCastSettings"][::core::mem::size_of::<JPC_ShapeCastSettings>() - 36usize];
+    ["Size of JPC_ShapeCastSettings"][::core::mem::size_of::<JPC_ShapeCastSettings>() - 40usize];
     ["Alignment of JPC_ShapeCastSettings"]
         [::core::mem::align_of::<JPC_ShapeCastSettings>() - 4usize];
     ["Offset of field: JPC_ShapeCastSettings::back_face_mode_triangles"]
@@ -2099,6 +2595,8 @@ const _: () = {
         [::core::mem::offset_of!(JPC_ShapeCastSettings, collision_tolerance) - 28usize];
     ["Offset of field: JPC_ShapeCastSettings::penetration_tolerance"]
         [::core::mem::offset_of!(JPC_ShapeCastSettings, penetration_tolerance) - 32usize];
+    ["Offset of field: JPC_ShapeCastSettings::collect_faces"]
+        [::core::mem::offset_of!(JPC_ShapeCastSettings, collect_faces) - 36usize];
 };
 impl Default for JPC_ShapeCastSettings {
     fn default() -> Self {
@@ -3971,7 +4469,7 @@ unsafe extern "C" {
     pub fn JPC_Vehicle_SetCollisionTester(
         vehicle: *mut JPC_Constraint,
         tester: *const JPC_VehicleCollisionTester,
-    );
+    ) -> bool;
 }
 unsafe extern "C" {
     pub fn JPC_Vehicle_SetDriverInput(
@@ -4444,6 +4942,129 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn JPC_Ragdoll_GetSettings(ragdoll: *const JPC_Ragdoll) -> *const JPC_RagdollSettings;
+}
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone)]
+pub struct JPC_AnimationKeyframe {
+    pub time: f32,
+    pub translation: JPC_Vec3,
+    pub rotation: JPC_Quat,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of JPC_AnimationKeyframe"][::core::mem::size_of::<JPC_AnimationKeyframe>() - 32usize];
+    ["Alignment of JPC_AnimationKeyframe"]
+        [::core::mem::align_of::<JPC_AnimationKeyframe>() - 4usize];
+    ["Offset of field: JPC_AnimationKeyframe::time"]
+        [::core::mem::offset_of!(JPC_AnimationKeyframe, time) - 0usize];
+    ["Offset of field: JPC_AnimationKeyframe::translation"]
+        [::core::mem::offset_of!(JPC_AnimationKeyframe, translation) - 4usize];
+    ["Offset of field: JPC_AnimationKeyframe::rotation"]
+        [::core::mem::offset_of!(JPC_AnimationKeyframe, rotation) - 16usize];
+};
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct JPC_AnimatedJoint {
+    pub name: *const ::core::ffi::c_char,
+    pub keyframes: *const JPC_AnimationKeyframe,
+    pub num_keyframes: u32,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of JPC_AnimatedJoint"][::core::mem::size_of::<JPC_AnimatedJoint>() - 24usize];
+    ["Alignment of JPC_AnimatedJoint"][::core::mem::align_of::<JPC_AnimatedJoint>() - 8usize];
+    ["Offset of field: JPC_AnimatedJoint::name"]
+        [::core::mem::offset_of!(JPC_AnimatedJoint, name) - 0usize];
+    ["Offset of field: JPC_AnimatedJoint::keyframes"]
+        [::core::mem::offset_of!(JPC_AnimatedJoint, keyframes) - 8usize];
+    ["Offset of field: JPC_AnimatedJoint::num_keyframes"]
+        [::core::mem::offset_of!(JPC_AnimatedJoint, num_keyframes) - 16usize];
+};
+impl Default for JPC_AnimatedJoint {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+unsafe extern "C" {
+    pub fn JPC_SkeletalAnimation_Create(
+        joints: *const JPC_AnimatedJoint,
+        num_joints: u32,
+        looping: bool,
+    ) -> *mut JPC_SkeletalAnimation;
+}
+unsafe extern "C" {
+    pub fn JPC_SkeletalAnimation_AddRef(animation: *const JPC_SkeletalAnimation);
+}
+unsafe extern "C" {
+    pub fn JPC_SkeletalAnimation_Release(animation: *const JPC_SkeletalAnimation);
+}
+unsafe extern "C" {
+    pub fn JPC_SkeletalAnimation_GetDuration(animation: *const JPC_SkeletalAnimation) -> f32;
+}
+unsafe extern "C" {
+    pub fn JPC_SkeletalAnimation_IsLooping(animation: *const JPC_SkeletalAnimation) -> bool;
+}
+unsafe extern "C" {
+    pub fn JPC_SkeletalAnimation_Sample(
+        animation: *const JPC_SkeletalAnimation,
+        skeleton: *const JPC_Skeleton,
+        time: f32,
+        io_states: *mut JPC_JointState,
+    ) -> bool;
+}
+unsafe extern "C" {
+    pub fn JPC_SkeletonMapper_Create(
+        skeleton1: *const JPC_Skeleton,
+        neutral_pose1: *const JPC_Mat44,
+        skeleton2: *const JPC_Skeleton,
+        neutral_pose2: *const JPC_Mat44,
+        locked_translations: *const bool,
+        lock_all_translations: bool,
+    ) -> *mut JPC_SkeletonMapper;
+}
+unsafe extern "C" {
+    pub fn JPC_SkeletonMapper_AddRef(mapper: *const JPC_SkeletonMapper);
+}
+unsafe extern "C" {
+    pub fn JPC_SkeletonMapper_Release(mapper: *const JPC_SkeletonMapper);
+}
+unsafe extern "C" {
+    pub fn JPC_SkeletonMapper_GetJointCounts(
+        mapper: *const JPC_SkeletonMapper,
+        out_count1: *mut u32,
+        out_count2: *mut u32,
+    );
+}
+unsafe extern "C" {
+    pub fn JPC_SkeletonMapper_Map(
+        mapper: *const JPC_SkeletonMapper,
+        pose1_model_space: *const JPC_Mat44,
+        pose2_local_space: *const JPC_Mat44,
+        out_pose2_model_space: *mut JPC_Mat44,
+    );
+}
+unsafe extern "C" {
+    pub fn JPC_SkeletonMapper_MapReverse(
+        mapper: *const JPC_SkeletonMapper,
+        pose2_model_space: *const JPC_Mat44,
+        out_pose1_model_space: *mut JPC_Mat44,
+    );
+}
+unsafe extern "C" {
+    pub fn JPC_SkeletonMapper_GetMappedJointIndex(
+        mapper: *const JPC_SkeletonMapper,
+        joint1: u32,
+    ) -> i32;
+}
+unsafe extern "C" {
+    pub fn JPC_SkeletonMapper_IsJointTranslationLocked(
+        mapper: *const JPC_SkeletonMapper,
+        joint2: u32,
+    ) -> bool;
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]

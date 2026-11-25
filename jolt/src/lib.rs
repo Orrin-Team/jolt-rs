@@ -32,6 +32,7 @@
 //! assert!((system.body_interface().position(ball).y - 0.5).abs() < 0.05);
 //! ```
 
+pub mod animation;
 mod body;
 pub mod character;
 mod constraint;
@@ -45,6 +46,7 @@ mod query;
 pub mod ragdoll;
 mod shape;
 mod snapshot;
+pub mod soft_body;
 mod system;
 pub mod vehicle;
 
@@ -53,6 +55,7 @@ use std::sync::{Once, RwLock};
 
 pub use jolt_sys as sys;
 
+pub use animation::{AnimatedJoint, Keyframe, LockedTranslations, SkeletalAnimation, SkeletonMapper};
 pub use body::{
     Activation, AllowedDofs, BatchError, Body, BodyCreationSettings, BodyId, BodyInterface, MotionQuality, MotionType, OverrideMassProperties,
     SubShapeId,
@@ -89,6 +92,10 @@ pub use query::{
 pub use ragdoll::{JointState, Ragdoll, RagdollConstraint, RagdollJoint, RagdollOptions, RagdollPart, RagdollSettings, Skeleton, SkeletonBuilder};
 pub use shape::{CompoundSubShape, DEFAULT_CONVEX_RADIUS, MassProperties, MutableCompound, Shape, ShapeSubType, ShapeType};
 pub use snapshot::{PhysicsSnapshot, StateParts};
+pub use soft_body::{
+    BendType, LraType, SoftBodyCounts, SoftBodyCreationSettings, SoftBodyDesc, SoftBodyDihedralBend, SoftBodyEdge, SoftBodyFace, SoftBodyLra,
+    SoftBodyProperties, SoftBodySharedSettings, SoftBodyVertex, SoftBodyVertexState, SoftBodyVolume, VertexAttributes,
+};
 pub use system::{JobSystem, PhysicsSettings, PhysicsSystem, PhysicsSystemSettings, TempAllocator, UpdateError};
 
 /// Sets up Jolt's allocator, factory and type registry. Called automatically by every constructor,

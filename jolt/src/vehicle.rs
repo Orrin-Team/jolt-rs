@@ -27,7 +27,8 @@ use jolt_sys as sys;
 use crate::constraint::{ConstraintCommon, ConstraintKind, ConstraintSettings, SpringSettings, private};
 use crate::{BodyId, ConstraintId, Error, Mat44, ObjectLayer, PhysicsSystem, Result, SubShapeId, Vec3};
 
-/// How wheels find the ground. Reference counted; one tester can be shared by many vehicles.
+/// How wheels find the ground. Reference counted; one tester can be shared by many vehicles. Wheels ignore their
+/// own vehicle and soft bodies.
 pub struct VehicleCollisionTester {
     raw: NonNull<sys::JPC_VehicleCollisionTester>,
 }
@@ -872,8 +873,9 @@ impl VehicleMut<'_> {
         }
     }
 
-    pub fn set_collision_tester(&mut self, tester: &VehicleCollisionTester) {
-        unsafe { sys::JPC_Vehicle_SetCollisionTester(self.ptr(), tester.as_raw()) }
+    /// Fails for a tester whose layer this vehicle's system doesn't have.
+    pub fn set_collision_tester(&mut self, tester: &VehicleCollisionTester) -> Result<()> {
+        if unsafe { sys::JPC_Vehicle_SetCollisionTester(self.ptr(), tester.as_raw()) } { Ok(()) } else { Err(Error::last()) }
     }
 }
 

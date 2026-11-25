@@ -48,21 +48,23 @@ system.update(1.0 / 60.0, 1, &mut temp, &jobs)?;
 |---|---|
 | Shapes | ✅ sphere, box, capsule, tapered capsule, cylinder, tapered cylinder, convex hull, mesh, height field, plane, empty, static and mutable compound (editable in place, also on live bodies), rotated/translated, scaled, offset COM, compound child lookup from hits, binary serialization |
 | Bodies | ✅ creation settings, add/remove/destroy (single and batch), transforms, velocities, forces, impulses, buoyancy, kinematics, motion type/quality, material properties, collision groups, bounds, mass, user data |
-| Queries | ✅ ray (closest/all), point, collide shape, cast shape, broad phase (box, sphere, point, oriented box, ray, box cast), back face / active edge / tolerance settings, layer and body filters · ❌ collect-faces |
+| Queries | ✅ ray (closest/all), point, collide shape, cast shape, broad phase (box, sphere, point, oriented box, ray, box cast), back face / active edge / tolerance settings, collected faces, layer and body filters |
 | Constraints | ✅ fixed, point, distance, hinge, slider, cone, swing-twist, six-DOF, gear, rack-and-pinion, pulley, path (Hermite), motors and limits |
 | Vehicles | ✅ wheeled vehicles (engine, transmission, differentials, anti-roll bars, friction curves, ray/sphere/cylinder testers), motorcycles (lean control), tracked vehicles |
-| Ragdolls | ✅ skeletons (joint hierarchy, local ↔ model space poses), ragdoll settings (any supported joint type, stabilisation, parent-child collision filtering), ragdolls (pose, kinematic and motor driving, impulses) · ❌ skeletal animation, skeleton mapping |
+| Ragdolls | ✅ skeletons (joint hierarchy, local ↔ model space poses), ragdoll settings (any supported joint type, stabilisation, parent-child collision filtering), ragdolls (pose, kinematic and motor driving, impulses), keyframed skeletal animation, skeleton mapping (chains, locked translations) |
 | Snapshots | ✅ save/restore (global, bodies, contacts, constraints), character state, bytes for networking |
 | Characters | ✅ `CharacterVirtual` (stairs, floor sticking, shape switching, inner body, listener, character-vs-character), rigid `Character` |
 | Listeners | ✅ contact, body activation, step |
 | Materials | ✅ per shape, mesh triangle and height field cell, reported by hits, contacts and characters |
-| Not started | ❌ soft bodies, debug renderer, double precision |
+| Soft bodies | ✅ cloth, cubes and custom meshes (vertices, faces, materials, edge/shear/bend/volume/long range constraints, generated or explicit), pinned vertices, pressure, vertex read/write, snapshots · ❌ soft body contact listener, skinning, Cosserat rods |
+| Not started | ❌ debug renderer, double precision |
 
 ## Safety
 
 - `PhysicsSystem::update` and `destroy_body` take `&mut self`; everything else is `&self`, thread-safe, and goes through Jolt's locking interfaces.
 - Panics in callbacks are caught at the FFI boundary and resumed in Rust.
 - joltc validates what Jolt only asserts in release builds: stale ids, double adds, unknown object layers, out-of-range indices, constraints on freed or character-owned bodies, invalid settings.
+- Soft bodies share ids with rigid bodies, so rigid-only calls refuse them: shapes (a soft body's shape lives inside the body), kinematic motion, non-dynamic motion types, buoyancy, constraints and vehicle bodies. Vehicle wheels ignore soft bodies, which Jolt would otherwise link into the wrong simulation island.
 - Constraints are owned by the system and die with their bodies. Characters and ragdolls keep the system alive, own their bodies, and defer native destruction until no update can be running.
 - Query collectors run after the native query returns. Body filters and listeners run inside Jolt and must not use the body interface.
 - Vehicles and step listeners run one after another from a single Jolt step listener, so they never race each other.
