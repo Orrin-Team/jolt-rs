@@ -267,6 +267,7 @@ typedef struct JPC_Ragdoll JPC_Ragdoll;
 typedef struct JPC_SkeletalAnimation JPC_SkeletalAnimation;
 typedef struct JPC_SkeletonMapper JPC_SkeletonMapper;
 typedef struct JPC_SoftBodySharedSettings JPC_SoftBodySharedSettings;
+typedef struct JPC_DebugRenderer JPC_DebugRenderer;
 
 /* ------------------------------------------------------------------------- */
 /* Global setup                                                               */
@@ -613,6 +614,28 @@ typedef struct JPC_BodyActivationListenerFns {
     void (*on_body_activated)(void *user_data, JPC_BodyID body_id, uint64_t body_user_data);
     void (*on_body_deactivated)(void *user_data, JPC_BodyID body_id, uint64_t body_user_data);
 } JPC_BodyActivationListenerFns;
+
+/* Estimated impulses and velocities of a new contact, e.g. to play an impact sound of the right strength. */
+typedef struct JPC_CollisionEstimation {
+    JPC_Vec3 linear_velocity1;
+    JPC_Vec3 angular_velocity1;
+    JPC_Vec3 linear_velocity2;
+    JPC_Vec3 angular_velocity2;
+    /* Relative to the manifold's base offset. */
+    JPC_Vec3 friction_point;
+    JPC_Vec3 friction_impulse;
+    float angular_friction_impulse;
+    /* One per contact point of the manifold. */
+    float contact_impulses[64];
+    uint32_t num_contact_impulses;
+} JPC_CollisionEstimation;
+
+/* Estimates the result of a collision between two bodies, assuming no other bodies are involved. Only call it from
+ * on_contact_added or on_contact_persisted, with that callback's bodies, manifold and settings. num_iterations of 1
+ * skips friction. Returns false for a manifold with more than 64 points. */
+JPC_API bool JPC_EstimateCollisionResponse(const JPC_Body *body1, const JPC_Body *body2, const JPC_ContactManifold *manifold,
+                                           const JPC_ContactSettings *settings, float min_velocity_for_restitution, uint32_t num_iterations,
+                                           JPC_CollisionEstimation *out_result);
 
 /* fns is copied. Pass NULL to remove the listener.
  * Activation callbacks may also run on whichever thread wakes a body; they must not use a body interface. */
@@ -1085,6 +1108,92 @@ typedef struct JPC_SoftBodyContactListenerFns {
 
 /* fns is copied; NULL removes the listener. */
 JPC_API void JPC_PhysicsSystem_SetSoftBodyContactListener(JPC_PhysicsSystem *system, const JPC_SoftBodyContactListenerFns *fns, void *user_data);
+
+/* ------------------------------------------------------------------------- */
+/* Debug rendering                                                            */
+/*                                                                            */
+/* Only available when Jolt was built with its debug renderer (the Rust       */
+/* crate's debug-renderer feature); otherwise creating a renderer fails.      */
+/* ------------------------------------------------------------------------- */
+
+typedef struct JPC_Color {
+    uint8_t r, g, b, a;
+} JPC_Color;
+
+/* Called on the drawing thread while drawing. draw_triangle may be NULL to get each triangle as 3 lines; text is not
+ * NUL terminated. */
+typedef struct JPC_DebugRendererFns {
+    void (*draw_line)(void *user_data, JPC_RVec3 from, JPC_RVec3 to, JPC_Color color);
+    void (*draw_triangle)(void *user_data, JPC_RVec3 v1, JPC_RVec3 v2, JPC_RVec3 v3, JPC_Color color, bool cast_shadow);
+    void (*draw_text)(void *user_data, JPC_RVec3 position, const char *text, size_t length, JPC_Color color, float height);
+} JPC_DebugRendererFns;
+
+typedef enum JPC_ShapeColor {
+    JPC_SHAPE_COLOR_INSTANCE = 0,
+    JPC_SHAPE_COLOR_SHAPE_TYPE = 1,
+    JPC_SHAPE_COLOR_MOTION_TYPE = 2,
+    JPC_SHAPE_COLOR_SLEEP = 3,
+    JPC_SHAPE_COLOR_ISLAND = 4,
+    JPC_SHAPE_COLOR_MATERIAL = 5,
+} JPC_ShapeColor;
+
+typedef enum JPC_SoftBodyConstraintColor {
+    JPC_SOFT_BODY_CONSTRAINT_COLOR_TYPE = 0,
+    JPC_SOFT_BODY_CONSTRAINT_COLOR_GROUP = 1,
+    JPC_SOFT_BODY_CONSTRAINT_COLOR_ORDER = 2,
+} JPC_SoftBodyConstraintColor;
+
+typedef struct JPC_BodyDrawSettings {
+    bool draw_get_support_function;
+    bool draw_support_direction;
+    bool draw_get_supporting_face;
+    bool draw_shape;
+    bool draw_shape_wireframe;
+    JPC_ShapeColor shape_color;
+    bool draw_bounding_box;
+    bool draw_center_of_mass_transform;
+    bool draw_world_transform;
+    bool draw_velocity;
+    bool draw_mass_and_inertia;
+    bool draw_sleep_stats;
+    bool draw_soft_body_vertices;
+    bool draw_soft_body_vertex_velocities;
+    bool draw_soft_body_edge_constraints;
+    bool draw_soft_body_bend_constraints;
+    bool draw_soft_body_volume_constraints;
+    bool draw_soft_body_skin_constraints;
+    bool draw_soft_body_lra_constraints;
+    bool draw_soft_body_rods;
+    bool draw_soft_body_rod_states;
+    bool draw_soft_body_rod_bend_twist_constraints;
+    bool draw_soft_body_predicted_bounds;
+    JPC_SoftBodyConstraintColor soft_body_constraint_color;
+} JPC_BodyDrawSettings;
+
+JPC_API bool JPC_DebugRenderer_IsAvailable(void);
+JPC_API void JPC_BodyDrawSettings_SetDefault(JPC_BodyDrawSettings *settings);
+/* Jolt allows one renderer at a time: NULL with an error if one exists or Jolt was built without the debug renderer.
+ * fns is copied and can be replaced with JPC_DebugRenderer_SetFns. */
+JPC_API JPC_DebugRenderer *JPC_DebugRenderer_Create(const JPC_DebugRendererFns *fns, void *user_data);
+JPC_API void JPC_DebugRenderer_Destroy(JPC_DebugRenderer *renderer);
+JPC_API void JPC_DebugRenderer_SetFns(JPC_DebugRenderer *renderer, const JPC_DebugRendererFns *fns, void *user_data);
+/* Detailed shapes are simplified with distance from the camera. */
+JPC_API void JPC_DebugRenderer_SetCameraPosition(JPC_DebugRenderer *renderer, JPC_RVec3 position);
+
+typedef bool (*JPC_BodyDrawFilterFn)(void *user_data, JPC_BodyID body_id);
+
+/* Draws the bodies in the world. Every body is locked meanwhile: filter (which may be NULL) must not use a body
+ * interface, and neither may the renderer's callbacks. Must not run during an update. */
+JPC_API void JPC_PhysicsSystem_DrawBodies(JPC_PhysicsSystem *system, const JPC_BodyDrawSettings *settings, JPC_DebugRenderer *renderer,
+                                          JPC_BodyDrawFilterFn filter, void *filter_user_data);
+/* Draw the constraints (vehicles included), their limits or their reference frames. These read bodies without locking
+ * them: nothing else may use the system meanwhile. */
+JPC_API void JPC_PhysicsSystem_DrawConstraints(JPC_PhysicsSystem *system, JPC_DebugRenderer *renderer);
+JPC_API void JPC_PhysicsSystem_DrawConstraintLimits(JPC_PhysicsSystem *system, JPC_DebugRenderer *renderer);
+JPC_API void JPC_PhysicsSystem_DrawConstraintReferenceFrames(JPC_PhysicsSystem *system, JPC_DebugRenderer *renderer);
+/* Draws a skeleton posed with one model space matrix per joint, offset by root_offset. */
+JPC_API void JPC_Skeleton_DrawPose(const JPC_Skeleton *skeleton, const JPC_Mat44 *joint_matrices, JPC_RVec3 root_offset, bool draw_joint_names,
+                                   JPC_DebugRenderer *renderer);
 
 /* ------------------------------------------------------------------------- */
 /* Queries                                                                    */

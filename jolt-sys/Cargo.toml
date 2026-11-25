@@ -27,6 +27,8 @@ name = "jolt_sys"
 [features]
 # Compile Jolt with JPH_ENABLE_ASSERTS.
 asserts = []
+# Compile Jolt's debug renderer in, to draw bodies and constraints (slightly slower and larger).
+debug-renderer = []
 # Make simulation results identical across platforms and compilers (slower).
 cross-platform-deterministic = []
 # Regenerate the bindings with bindgen (needs libclang). Set JOLT_SYS_UPDATE_BINDINGS=1 to write them to src/bindings.rs.

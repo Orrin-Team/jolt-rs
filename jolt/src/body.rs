@@ -775,7 +775,7 @@ impl Body {
         unsafe { &*raw.cast::<Self>() }
     }
 
-    fn raw(&self) -> *const sys::JPC_Body {
+    pub(crate) fn raw(&self) -> *const sys::JPC_Body {
         (self as *const Self).cast()
     }
 

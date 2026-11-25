@@ -54,10 +54,11 @@ system.update(1.0 / 60.0, 1, &mut temp, &jobs)?;
 | Ragdolls | ✅ skeletons (joint hierarchy, local ↔ model space poses), ragdoll settings (any supported joint type, stabilisation, parent-child collision filtering), ragdolls (pose, kinematic and motor driving, impulses), keyframed skeletal animation, skeleton mapping (chains, locked translations) |
 | Snapshots | ✅ save/restore (global, bodies, contacts, constraints), character state, bytes for networking |
 | Characters | ✅ `CharacterVirtual` (stairs, floor sticking, shape switching, inner body, listener, character-vs-character), rigid `Character` |
-| Listeners | ✅ contact, soft body contact, body activation, step |
+| Listeners | ✅ contact (with collision response estimation), soft body contact, body activation, step |
 | Materials | ✅ per shape, mesh triangle and height field cell, reported by hits, contacts and characters |
 | Soft bodies | ✅ cloth, cubes and custom meshes (vertices, faces, materials, edge/shear/bend/volume/long range constraints, generated or explicit), pinned vertices, pressure, vertex read/write, skinning to animated joints, Cosserat rods, contact listener, snapshots |
-| Not started | ❌ debug renderer, double precision |
+| Debug rendering | ✅ bodies (shapes, bounds, transforms, velocities, soft body internals), constraints, limits, reference frames and skeleton poses as lines, triangles and text, behind the `debug-renderer` feature |
+| Not started | ❌ double precision |
 
 ## Safety
 

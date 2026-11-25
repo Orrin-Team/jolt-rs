@@ -27,6 +27,8 @@ jobs:
       - run: cargo test
       - name: Test with Jolt asserts
         run: cargo test -p orrin-jolt --features asserts
+      - name: Test with the debug renderer
+        run: cargo test -p orrin-jolt --features debug-renderer
 
   asan:
     name: AddressSanitizer

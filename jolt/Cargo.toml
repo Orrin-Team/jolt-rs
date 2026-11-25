@@ -21,4 +21,6 @@ glam = { version = "0.34", optional = true }
 [features]
 asserts = ["jolt-sys/asserts"]
 cross-platform-deterministic = ["jolt-sys/cross-platform-deterministic"]
+# Draw bodies and constraints through `DebugRenderer`.
+debug-renderer = ["jolt-sys/debug-renderer"]
 glam = ["dep:glam"]

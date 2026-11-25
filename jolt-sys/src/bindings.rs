@@ -344,6 +344,11 @@ pub struct JPC_SkeletonMapper {
 pub struct JPC_SoftBodySharedSettings {
     _unused: [u8; 0],
 }
+#[repr(C)]
+#[derive(Debug)]
+pub struct JPC_DebugRenderer {
+    _unused: [u8; 0],
+}
 pub type JPC_TraceFn =
     ::core::option::Option<unsafe extern "C" fn(message: *const ::core::ffi::c_char)>;
 pub type JPC_AssertFailedFn = ::core::option::Option<
@@ -1196,6 +1201,64 @@ const _: () = {
     ["Offset of field: JPC_BodyActivationListenerFns::on_body_deactivated"]
         [::core::mem::offset_of!(JPC_BodyActivationListenerFns, on_body_deactivated) - 8usize];
 };
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct JPC_CollisionEstimation {
+    pub linear_velocity1: JPC_Vec3,
+    pub angular_velocity1: JPC_Vec3,
+    pub linear_velocity2: JPC_Vec3,
+    pub angular_velocity2: JPC_Vec3,
+    pub friction_point: JPC_Vec3,
+    pub friction_impulse: JPC_Vec3,
+    pub angular_friction_impulse: f32,
+    pub contact_impulses: [f32; 64usize],
+    pub num_contact_impulses: u32,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of JPC_CollisionEstimation"]
+        [::core::mem::size_of::<JPC_CollisionEstimation>() - 336usize];
+    ["Alignment of JPC_CollisionEstimation"]
+        [::core::mem::align_of::<JPC_CollisionEstimation>() - 4usize];
+    ["Offset of field: JPC_CollisionEstimation::linear_velocity1"]
+        [::core::mem::offset_of!(JPC_CollisionEstimation, linear_velocity1) - 0usize];
+    ["Offset of field: JPC_CollisionEstimation::angular_velocity1"]
+        [::core::mem::offset_of!(JPC_CollisionEstimation, angular_velocity1) - 12usize];
+    ["Offset of field: JPC_CollisionEstimation::linear_velocity2"]
+        [::core::mem::offset_of!(JPC_CollisionEstimation, linear_velocity2) - 24usize];
+    ["Offset of field: JPC_CollisionEstimation::angular_velocity2"]
+        [::core::mem::offset_of!(JPC_CollisionEstimation, angular_velocity2) - 36usize];
+    ["Offset of field: JPC_CollisionEstimation::friction_point"]
+        [::core::mem::offset_of!(JPC_CollisionEstimation, friction_point) - 48usize];
+    ["Offset of field: JPC_CollisionEstimation::friction_impulse"]
+        [::core::mem::offset_of!(JPC_CollisionEstimation, friction_impulse) - 60usize];
+    ["Offset of field: JPC_CollisionEstimation::angular_friction_impulse"]
+        [::core::mem::offset_of!(JPC_CollisionEstimation, angular_friction_impulse) - 72usize];
+    ["Offset of field: JPC_CollisionEstimation::contact_impulses"]
+        [::core::mem::offset_of!(JPC_CollisionEstimation, contact_impulses) - 76usize];
+    ["Offset of field: JPC_CollisionEstimation::num_contact_impulses"]
+        [::core::mem::offset_of!(JPC_CollisionEstimation, num_contact_impulses) - 332usize];
+};
+impl Default for JPC_CollisionEstimation {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+unsafe extern "C" {
+    pub fn JPC_EstimateCollisionResponse(
+        body1: *const JPC_Body,
+        body2: *const JPC_Body,
+        manifold: *const JPC_ContactManifold,
+        settings: *const JPC_ContactSettings,
+        min_velocity_for_restitution: f32,
+        num_iterations: u32,
+        out_result: *mut JPC_CollisionEstimation,
+    ) -> bool;
+}
 unsafe extern "C" {
     pub fn JPC_PhysicsSystem_SetContactListener(
         system: *mut JPC_PhysicsSystem,
@@ -2576,6 +2639,239 @@ unsafe extern "C" {
         system: *mut JPC_PhysicsSystem,
         fns: *const JPC_SoftBodyContactListenerFns,
         user_data: *mut ::core::ffi::c_void,
+    );
+}
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone)]
+pub struct JPC_Color {
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+    pub a: u8,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of JPC_Color"][::core::mem::size_of::<JPC_Color>() - 4usize];
+    ["Alignment of JPC_Color"][::core::mem::align_of::<JPC_Color>() - 1usize];
+    ["Offset of field: JPC_Color::r"][::core::mem::offset_of!(JPC_Color, r) - 0usize];
+    ["Offset of field: JPC_Color::g"][::core::mem::offset_of!(JPC_Color, g) - 1usize];
+    ["Offset of field: JPC_Color::b"][::core::mem::offset_of!(JPC_Color, b) - 2usize];
+    ["Offset of field: JPC_Color::a"][::core::mem::offset_of!(JPC_Color, a) - 3usize];
+};
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone)]
+pub struct JPC_DebugRendererFns {
+    pub draw_line: ::core::option::Option<
+        unsafe extern "C" fn(
+            user_data: *mut ::core::ffi::c_void,
+            from: JPC_RVec3,
+            to: JPC_RVec3,
+            color: JPC_Color,
+        ),
+    >,
+    pub draw_triangle: ::core::option::Option<
+        unsafe extern "C" fn(
+            user_data: *mut ::core::ffi::c_void,
+            v1: JPC_RVec3,
+            v2: JPC_RVec3,
+            v3: JPC_RVec3,
+            color: JPC_Color,
+            cast_shadow: bool,
+        ),
+    >,
+    pub draw_text: ::core::option::Option<
+        unsafe extern "C" fn(
+            user_data: *mut ::core::ffi::c_void,
+            position: JPC_RVec3,
+            text: *const ::core::ffi::c_char,
+            length: usize,
+            color: JPC_Color,
+            height: f32,
+        ),
+    >,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of JPC_DebugRendererFns"][::core::mem::size_of::<JPC_DebugRendererFns>() - 24usize];
+    ["Alignment of JPC_DebugRendererFns"][::core::mem::align_of::<JPC_DebugRendererFns>() - 8usize];
+    ["Offset of field: JPC_DebugRendererFns::draw_line"]
+        [::core::mem::offset_of!(JPC_DebugRendererFns, draw_line) - 0usize];
+    ["Offset of field: JPC_DebugRendererFns::draw_triangle"]
+        [::core::mem::offset_of!(JPC_DebugRendererFns, draw_triangle) - 8usize];
+    ["Offset of field: JPC_DebugRendererFns::draw_text"]
+        [::core::mem::offset_of!(JPC_DebugRendererFns, draw_text) - 16usize];
+};
+pub const JPC_SHAPE_COLOR_INSTANCE: JPC_ShapeColor = 0;
+pub const JPC_SHAPE_COLOR_SHAPE_TYPE: JPC_ShapeColor = 1;
+pub const JPC_SHAPE_COLOR_MOTION_TYPE: JPC_ShapeColor = 2;
+pub const JPC_SHAPE_COLOR_SLEEP: JPC_ShapeColor = 3;
+pub const JPC_SHAPE_COLOR_ISLAND: JPC_ShapeColor = 4;
+pub const JPC_SHAPE_COLOR_MATERIAL: JPC_ShapeColor = 5;
+pub type JPC_ShapeColor = ::core::ffi::c_uint;
+pub const JPC_SOFT_BODY_CONSTRAINT_COLOR_TYPE: JPC_SoftBodyConstraintColor = 0;
+pub const JPC_SOFT_BODY_CONSTRAINT_COLOR_GROUP: JPC_SoftBodyConstraintColor = 1;
+pub const JPC_SOFT_BODY_CONSTRAINT_COLOR_ORDER: JPC_SoftBodyConstraintColor = 2;
+pub type JPC_SoftBodyConstraintColor = ::core::ffi::c_uint;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct JPC_BodyDrawSettings {
+    pub draw_get_support_function: bool,
+    pub draw_support_direction: bool,
+    pub draw_get_supporting_face: bool,
+    pub draw_shape: bool,
+    pub draw_shape_wireframe: bool,
+    pub shape_color: JPC_ShapeColor,
+    pub draw_bounding_box: bool,
+    pub draw_center_of_mass_transform: bool,
+    pub draw_world_transform: bool,
+    pub draw_velocity: bool,
+    pub draw_mass_and_inertia: bool,
+    pub draw_sleep_stats: bool,
+    pub draw_soft_body_vertices: bool,
+    pub draw_soft_body_vertex_velocities: bool,
+    pub draw_soft_body_edge_constraints: bool,
+    pub draw_soft_body_bend_constraints: bool,
+    pub draw_soft_body_volume_constraints: bool,
+    pub draw_soft_body_skin_constraints: bool,
+    pub draw_soft_body_lra_constraints: bool,
+    pub draw_soft_body_rods: bool,
+    pub draw_soft_body_rod_states: bool,
+    pub draw_soft_body_rod_bend_twist_constraints: bool,
+    pub draw_soft_body_predicted_bounds: bool,
+    pub soft_body_constraint_color: JPC_SoftBodyConstraintColor,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of JPC_BodyDrawSettings"][::core::mem::size_of::<JPC_BodyDrawSettings>() - 36usize];
+    ["Alignment of JPC_BodyDrawSettings"][::core::mem::align_of::<JPC_BodyDrawSettings>() - 4usize];
+    ["Offset of field: JPC_BodyDrawSettings::draw_get_support_function"]
+        [::core::mem::offset_of!(JPC_BodyDrawSettings, draw_get_support_function) - 0usize];
+    ["Offset of field: JPC_BodyDrawSettings::draw_support_direction"]
+        [::core::mem::offset_of!(JPC_BodyDrawSettings, draw_support_direction) - 1usize];
+    ["Offset of field: JPC_BodyDrawSettings::draw_get_supporting_face"]
+        [::core::mem::offset_of!(JPC_BodyDrawSettings, draw_get_supporting_face) - 2usize];
+    ["Offset of field: JPC_BodyDrawSettings::draw_shape"]
+        [::core::mem::offset_of!(JPC_BodyDrawSettings, draw_shape) - 3usize];
+    ["Offset of field: JPC_BodyDrawSettings::draw_shape_wireframe"]
+        [::core::mem::offset_of!(JPC_BodyDrawSettings, draw_shape_wireframe) - 4usize];
+    ["Offset of field: JPC_BodyDrawSettings::shape_color"]
+        [::core::mem::offset_of!(JPC_BodyDrawSettings, shape_color) - 8usize];
+    ["Offset of field: JPC_BodyDrawSettings::draw_bounding_box"]
+        [::core::mem::offset_of!(JPC_BodyDrawSettings, draw_bounding_box) - 12usize];
+    ["Offset of field: JPC_BodyDrawSettings::draw_center_of_mass_transform"]
+        [::core::mem::offset_of!(JPC_BodyDrawSettings, draw_center_of_mass_transform) - 13usize];
+    ["Offset of field: JPC_BodyDrawSettings::draw_world_transform"]
+        [::core::mem::offset_of!(JPC_BodyDrawSettings, draw_world_transform) - 14usize];
+    ["Offset of field: JPC_BodyDrawSettings::draw_velocity"]
+        [::core::mem::offset_of!(JPC_BodyDrawSettings, draw_velocity) - 15usize];
+    ["Offset of field: JPC_BodyDrawSettings::draw_mass_and_inertia"]
+        [::core::mem::offset_of!(JPC_BodyDrawSettings, draw_mass_and_inertia) - 16usize];
+    ["Offset of field: JPC_BodyDrawSettings::draw_sleep_stats"]
+        [::core::mem::offset_of!(JPC_BodyDrawSettings, draw_sleep_stats) - 17usize];
+    ["Offset of field: JPC_BodyDrawSettings::draw_soft_body_vertices"]
+        [::core::mem::offset_of!(JPC_BodyDrawSettings, draw_soft_body_vertices) - 18usize];
+    ["Offset of field: JPC_BodyDrawSettings::draw_soft_body_vertex_velocities"]
+        [::core::mem::offset_of!(JPC_BodyDrawSettings, draw_soft_body_vertex_velocities) - 19usize];
+    ["Offset of field: JPC_BodyDrawSettings::draw_soft_body_edge_constraints"]
+        [::core::mem::offset_of!(JPC_BodyDrawSettings, draw_soft_body_edge_constraints) - 20usize];
+    ["Offset of field: JPC_BodyDrawSettings::draw_soft_body_bend_constraints"]
+        [::core::mem::offset_of!(JPC_BodyDrawSettings, draw_soft_body_bend_constraints) - 21usize];
+    ["Offset of field: JPC_BodyDrawSettings::draw_soft_body_volume_constraints"][::core::mem::offset_of!(
+        JPC_BodyDrawSettings,
+        draw_soft_body_volume_constraints
+    ) - 22usize];
+    ["Offset of field: JPC_BodyDrawSettings::draw_soft_body_skin_constraints"]
+        [::core::mem::offset_of!(JPC_BodyDrawSettings, draw_soft_body_skin_constraints) - 23usize];
+    ["Offset of field: JPC_BodyDrawSettings::draw_soft_body_lra_constraints"]
+        [::core::mem::offset_of!(JPC_BodyDrawSettings, draw_soft_body_lra_constraints) - 24usize];
+    ["Offset of field: JPC_BodyDrawSettings::draw_soft_body_rods"]
+        [::core::mem::offset_of!(JPC_BodyDrawSettings, draw_soft_body_rods) - 25usize];
+    ["Offset of field: JPC_BodyDrawSettings::draw_soft_body_rod_states"]
+        [::core::mem::offset_of!(JPC_BodyDrawSettings, draw_soft_body_rod_states) - 26usize];
+    ["Offset of field: JPC_BodyDrawSettings::draw_soft_body_rod_bend_twist_constraints"][::core::mem::offset_of!(
+        JPC_BodyDrawSettings,
+        draw_soft_body_rod_bend_twist_constraints
+    )
+        - 27usize];
+    ["Offset of field: JPC_BodyDrawSettings::draw_soft_body_predicted_bounds"]
+        [::core::mem::offset_of!(JPC_BodyDrawSettings, draw_soft_body_predicted_bounds) - 28usize];
+    ["Offset of field: JPC_BodyDrawSettings::soft_body_constraint_color"]
+        [::core::mem::offset_of!(JPC_BodyDrawSettings, soft_body_constraint_color) - 32usize];
+};
+impl Default for JPC_BodyDrawSettings {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+unsafe extern "C" {
+    pub fn JPC_DebugRenderer_IsAvailable() -> bool;
+}
+unsafe extern "C" {
+    pub fn JPC_BodyDrawSettings_SetDefault(settings: *mut JPC_BodyDrawSettings);
+}
+unsafe extern "C" {
+    pub fn JPC_DebugRenderer_Create(
+        fns: *const JPC_DebugRendererFns,
+        user_data: *mut ::core::ffi::c_void,
+    ) -> *mut JPC_DebugRenderer;
+}
+unsafe extern "C" {
+    pub fn JPC_DebugRenderer_Destroy(renderer: *mut JPC_DebugRenderer);
+}
+unsafe extern "C" {
+    pub fn JPC_DebugRenderer_SetFns(
+        renderer: *mut JPC_DebugRenderer,
+        fns: *const JPC_DebugRendererFns,
+        user_data: *mut ::core::ffi::c_void,
+    );
+}
+unsafe extern "C" {
+    pub fn JPC_DebugRenderer_SetCameraPosition(
+        renderer: *mut JPC_DebugRenderer,
+        position: JPC_RVec3,
+    );
+}
+pub type JPC_BodyDrawFilterFn = ::core::option::Option<
+    unsafe extern "C" fn(user_data: *mut ::core::ffi::c_void, body_id: JPC_BodyID) -> bool,
+>;
+unsafe extern "C" {
+    pub fn JPC_PhysicsSystem_DrawBodies(
+        system: *mut JPC_PhysicsSystem,
+        settings: *const JPC_BodyDrawSettings,
+        renderer: *mut JPC_DebugRenderer,
+        filter: JPC_BodyDrawFilterFn,
+        filter_user_data: *mut ::core::ffi::c_void,
+    );
+}
+unsafe extern "C" {
+    pub fn JPC_PhysicsSystem_DrawConstraints(
+        system: *mut JPC_PhysicsSystem,
+        renderer: *mut JPC_DebugRenderer,
+    );
+}
+unsafe extern "C" {
+    pub fn JPC_PhysicsSystem_DrawConstraintLimits(
+        system: *mut JPC_PhysicsSystem,
+        renderer: *mut JPC_DebugRenderer,
+    );
+}
+unsafe extern "C" {
+    pub fn JPC_PhysicsSystem_DrawConstraintReferenceFrames(
+        system: *mut JPC_PhysicsSystem,
+        renderer: *mut JPC_DebugRenderer,
+    );
+}
+unsafe extern "C" {
+    pub fn JPC_Skeleton_DrawPose(
+        skeleton: *const JPC_Skeleton,
+        joint_matrices: *const JPC_Mat44,
+        root_offset: JPC_RVec3,
+        draw_joint_names: bool,
+        renderer: *mut JPC_DebugRenderer,
     );
 }
 pub type JPC_BodyFilterFn = ::core::option::Option<

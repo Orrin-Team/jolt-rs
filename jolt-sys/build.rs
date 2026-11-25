@@ -52,7 +52,7 @@ fn build_jolt(joltc_dir: &std::path::Path, jolt_dir: &std::path::Path) {
         .define("INTERPROCEDURAL_OPTIMIZATION", "OFF")
         .define("ENABLE_OBJECT_STREAM", "OFF")
         .define("PROFILER_IN_DEBUG_AND_RELEASE", "OFF")
-        .define("DEBUG_RENDERER_IN_DEBUG_AND_RELEASE", "OFF")
+        .define("DEBUG_RENDERER_IN_DEBUG_AND_RELEASE", on_off(cfg!(feature = "debug-renderer")))
         .define("JPH_USE_DX12", "OFF")
         .define("JPH_USE_VK", "OFF")
         .define("JPH_USE_MTL", "OFF")

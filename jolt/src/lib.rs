@@ -36,6 +36,7 @@ pub mod animation;
 mod body;
 pub mod character;
 mod constraint;
+pub mod debug;
 mod error;
 mod group;
 mod layers;
@@ -70,6 +71,9 @@ pub use constraint::{
     GearConstraintSettings, PathConstraintPath, PathConstraintSettings, PathPoint, PathRotationConstraint, PulleyConstraintSettings,
     RackAndPinionConstraintSettings, SixDofAxis, SixDofConstraintSettings, SliderConstraintSettings, SpringSettings,
     SwingTwistConstraintSettings, SwingType,
+};
+pub use debug::{
+    BodyDrawSettings, CollisionEstimation, Color, DebugDraw, DebugRenderer, ShapeColor, SoftBodyConstraintColor, estimate_collision_response,
 };
 pub use error::{Error, Result};
 pub use group::{CollisionGroup, GroupFilter, GroupFilterTable};
