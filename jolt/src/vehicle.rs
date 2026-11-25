@@ -1,4 +1,6 @@
-//! Wheeled vehicles: a dynamic body with suspension, tires, an engine, a transmission and differentials.
+//! Vehicles: a dynamic body with suspension, tires, an engine and a transmission. Wheeled vehicles drive their
+//! wheels through differentials, motorcycles are wheeled vehicles that lean into turns, and tracked vehicles drive
+//! two tracks and steer by running them at different speeds.
 //!
 //! ```no_run
 //! # use jolt::*;
@@ -241,13 +243,224 @@ impl Default for WheeledVehicleSettings {
     fn default() -> Self {
         let mut d = sys::JPC_WheeledVehicleSettings::default();
         unsafe { sys::JPC_WheeledVehicleSettings_SetDefault(&mut d) };
-        let t = &d.transmission;
-        // SAFETY: the defaults point at static arrays owned by joltc.
-        let (gears, reverse) = unsafe {
+        Self {
+            common: ConstraintCommon::from_sys(d.base),
+            up: d.up.into(),
+            forward: d.forward.into(),
+            max_pitch_roll_angle: d.max_pitch_roll_angle,
+            wheels: Vec::new(),
+            anti_roll_bars: Vec::new(),
+            // SAFETY: the defaults point at static arrays owned by joltc.
+            engine: unsafe { VehicleEngineSettings::from_sys(&d.engine) },
+            transmission: unsafe { VehicleTransmissionSettings::from_sys(&d.transmission) },
+            differentials: Vec::new(),
+            differential_limited_slip_ratio: d.differential_limited_slip_ratio,
+        }
+    }
+}
+
+impl VehicleEngineSettings {
+    /// # Safety
+    /// The torque curve pointer must be null or valid.
+    unsafe fn from_sys(e: &sys::JPC_VehicleEngineSettings) -> Self {
+        let normalized_torque = (!e.normalized_torque.is_null()).then(|| {
+            unsafe { std::slice::from_raw_parts(e.normalized_torque, e.num_normalized_torque as usize) }.iter().map(|p| (p.x, p.y)).collect()
+        });
+        Self {
+            max_torque: e.max_torque,
+            min_rpm: e.min_rpm,
+            max_rpm: e.max_rpm,
+            normalized_torque,
+            inertia: e.inertia,
+            angular_damping: e.angular_damping,
+        }
+    }
+
+    /// The returned struct points into `curve`.
+    fn to_sys(&self, curve: &Option<Vec<sys::JPC_LinearCurvePoint>>) -> sys::JPC_VehicleEngineSettings {
+        let (torque_ptr, torque_len) = curve_ptr(curve);
+        sys::JPC_VehicleEngineSettings {
+            max_torque: self.max_torque,
+            min_rpm: self.min_rpm,
+            max_rpm: self.max_rpm,
+            normalized_torque: torque_ptr,
+            num_normalized_torque: torque_len,
+            inertia: self.inertia,
+            angular_damping: self.angular_damping,
+        }
+    }
+}
+
+impl VehicleTransmissionSettings {
+    /// # Safety
+    /// The gear pointers must be valid for their counts.
+    unsafe fn from_sys(t: &sys::JPC_VehicleTransmissionSettings) -> Self {
+        let (gear_ratios, reverse_gear_ratios) = unsafe {
             (
                 std::slice::from_raw_parts(t.gear_ratios, t.num_gear_ratios as usize).to_vec(),
                 std::slice::from_raw_parts(t.reverse_gear_ratios, t.num_reverse_gear_ratios as usize).to_vec(),
             )
+        };
+        Self {
+            mode: if t.mode == sys::JPC_TRANSMISSION_MODE_MANUAL { TransmissionMode::Manual } else { TransmissionMode::Auto },
+            gear_ratios,
+            reverse_gear_ratios,
+            switch_time: t.switch_time,
+            clutch_release_time: t.clutch_release_time,
+            switch_latency: t.switch_latency,
+            shift_up_rpm: t.shift_up_rpm,
+            shift_down_rpm: t.shift_down_rpm,
+            clutch_strength: t.clutch_strength,
+        }
+    }
+
+    /// The returned struct points into `self`.
+    fn to_sys(&self) -> sys::JPC_VehicleTransmissionSettings {
+        sys::JPC_VehicleTransmissionSettings {
+            mode: match self.mode {
+                TransmissionMode::Auto => sys::JPC_TRANSMISSION_MODE_AUTO,
+                TransmissionMode::Manual => sys::JPC_TRANSMISSION_MODE_MANUAL,
+            },
+            gear_ratios: self.gear_ratios.as_ptr(),
+            num_gear_ratios: self.gear_ratios.len() as u32,
+            reverse_gear_ratios: self.reverse_gear_ratios.as_ptr(),
+            num_reverse_gear_ratios: self.reverse_gear_ratios.len() as u32,
+            switch_time: self.switch_time,
+            clutch_release_time: self.clutch_release_time,
+            switch_latency: self.switch_latency,
+            shift_up_rpm: self.shift_up_rpm,
+            shift_down_rpm: self.shift_down_rpm,
+            clutch_strength: self.clutch_strength,
+        }
+    }
+}
+
+/// A two wheeled vehicle that leans into turns. Wheel 0 is usually the front wheel and wheel 1 the rear wheel.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MotorcycleSettings {
+    pub vehicle: WheeledVehicleSettings,
+    /// Radians.
+    pub max_lean_angle: f32,
+    pub lean_spring_constant: f32,
+    pub lean_spring_damping: f32,
+    pub lean_spring_integration_coefficient: f32,
+    pub lean_spring_integration_coefficient_decay: f32,
+    /// 0 follows the target lean immediately; closer to 1 smooths it more.
+    pub lean_smoothing_factor: f32,
+}
+
+impl Default for MotorcycleSettings {
+    fn default() -> Self {
+        let mut d = sys::JPC_MotorcycleSettings::default();
+        unsafe { sys::JPC_MotorcycleSettings_SetDefault(&mut d) };
+        Self {
+            vehicle: WheeledVehicleSettings::default(),
+            max_lean_angle: d.max_lean_angle,
+            lean_spring_constant: d.lean_spring_constant,
+            lean_spring_damping: d.lean_spring_damping,
+            lean_spring_integration_coefficient: d.lean_spring_integration_coefficient,
+            lean_spring_integration_coefficient_decay: d.lean_spring_integration_coefficient_decay,
+            lean_smoothing_factor: d.lean_smoothing_factor,
+        }
+    }
+}
+
+/// One wheel of a tracked vehicle. It neither steers nor brakes by itself; its track does.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TrackedWheelSettings {
+    pub position: Vec3,
+    pub suspension_force_point: Vec3,
+    pub suspension_direction: Vec3,
+    pub steering_axis: Vec3,
+    pub wheel_up: Vec3,
+    pub wheel_forward: Vec3,
+    pub suspension_min_length: f32,
+    pub suspension_max_length: f32,
+    pub suspension_preload_length: f32,
+    pub suspension_spring: SpringSettings,
+    pub radius: f32,
+    pub width: f32,
+    pub enable_suspension_force_point: bool,
+    pub longitudinal_friction: f32,
+    pub lateral_friction: f32,
+}
+
+impl Default for TrackedWheelSettings {
+    fn default() -> Self {
+        let mut d = sys::JPC_WheelSettingsTV::default();
+        unsafe { sys::JPC_WheelSettingsTV_SetDefault(&mut d) };
+        Self {
+            position: d.position.into(),
+            suspension_force_point: d.suspension_force_point.into(),
+            suspension_direction: d.suspension_direction.into(),
+            steering_axis: d.steering_axis.into(),
+            wheel_up: d.wheel_up.into(),
+            wheel_forward: d.wheel_forward.into(),
+            suspension_min_length: d.suspension_min_length,
+            suspension_max_length: d.suspension_max_length,
+            suspension_preload_length: d.suspension_preload_length,
+            suspension_spring: SpringSettings::from_sys(d.suspension_spring),
+            radius: d.radius,
+            width: d.width,
+            enable_suspension_force_point: d.enable_suspension_force_point,
+            longitudinal_friction: d.longitudinal_friction,
+            lateral_friction: d.lateral_friction,
+        }
+    }
+}
+
+impl TrackedWheelSettings {
+    pub fn at(position: Vec3) -> Self {
+        Self { position, ..Default::default() }
+    }
+}
+
+/// One of the two tracks of a tracked vehicle.
+#[derive(Clone, Debug, PartialEq)]
+pub struct VehicleTrackSettings {
+    /// The wheel the engine drives; must be in `wheels`.
+    pub driven_wheel: u32,
+    /// Indices of the wheels in this track. Every wheel of the vehicle must be in exactly one track.
+    pub wheels: Vec<u32>,
+    pub inertia: f32,
+    pub angular_damping: f32,
+    pub max_brake_torque: f32,
+    pub differential_ratio: f32,
+}
+
+/// Which track of a tracked vehicle.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum TrackSide {
+    Left,
+    Right,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct TrackedVehicleSettings {
+    pub common: ConstraintCommon,
+    /// In the body's local space.
+    pub up: Vec3,
+    pub forward: Vec3,
+    pub max_pitch_roll_angle: f32,
+    pub wheels: Vec<TrackedWheelSettings>,
+    pub anti_roll_bars: Vec<AntiRollBar>,
+    pub engine: VehicleEngineSettings,
+    pub transmission: VehicleTransmissionSettings,
+    /// Left and right.
+    pub tracks: [VehicleTrackSettings; 2],
+}
+
+impl Default for TrackedVehicleSettings {
+    fn default() -> Self {
+        let mut d = sys::JPC_TrackedVehicleSettings::default();
+        unsafe { sys::JPC_TrackedVehicleSettings_SetDefault(&mut d) };
+        let track = |t: &sys::JPC_VehicleTrackSettings| VehicleTrackSettings {
+            driven_wheel: 0,
+            wheels: Vec::new(),
+            inertia: t.inertia,
+            angular_damping: t.angular_damping,
+            max_brake_torque: t.max_brake_torque,
+            differential_ratio: t.differential_ratio,
         };
         Self {
             common: ConstraintCommon::from_sys(d.base),
@@ -256,27 +469,10 @@ impl Default for WheeledVehicleSettings {
             max_pitch_roll_angle: d.max_pitch_roll_angle,
             wheels: Vec::new(),
             anti_roll_bars: Vec::new(),
-            engine: VehicleEngineSettings {
-                max_torque: d.engine.max_torque,
-                min_rpm: d.engine.min_rpm,
-                max_rpm: d.engine.max_rpm,
-                normalized_torque: None,
-                inertia: d.engine.inertia,
-                angular_damping: d.engine.angular_damping,
-            },
-            transmission: VehicleTransmissionSettings {
-                mode: if t.mode == sys::JPC_TRANSMISSION_MODE_MANUAL { TransmissionMode::Manual } else { TransmissionMode::Auto },
-                gear_ratios: gears,
-                reverse_gear_ratios: reverse,
-                switch_time: t.switch_time,
-                clutch_release_time: t.clutch_release_time,
-                switch_latency: t.switch_latency,
-                shift_up_rpm: t.shift_up_rpm,
-                shift_down_rpm: t.shift_down_rpm,
-                clutch_strength: t.clutch_strength,
-            },
-            differentials: Vec::new(),
-            differential_limited_slip_ratio: d.differential_limited_slip_ratio,
+            // SAFETY: the defaults point at static arrays owned by joltc.
+            engine: unsafe { VehicleEngineSettings::from_sys(&d.engine) },
+            transmission: unsafe { VehicleTransmissionSettings::from_sys(&d.transmission) },
+            tracks: [track(&d.tracks[0]), track(&d.tracks[1])],
         }
     }
 }
@@ -297,9 +493,143 @@ fn wheel_index(index: Option<u32>) -> i32 {
     index.map_or(-1, |i| i32::try_from(i).unwrap_or(i32::MAX))
 }
 
+fn anti_roll_bars_sys(bars: &[AntiRollBar]) -> Vec<sys::JPC_VehicleAntiRollBar> {
+    bars.iter()
+        .map(|b| sys::JPC_VehicleAntiRollBar {
+            left_wheel: wheel_index(Some(b.left_wheel)),
+            right_wheel: wheel_index(Some(b.right_wheel)),
+            stiffness: b.stiffness,
+        })
+        .collect()
+}
+
+/// Calls `f` with the C settings, whose pointers stay valid during the call.
+fn with_wheeled_sys<R>(s: &WheeledVehicleSettings, f: impl FnOnce(&sys::JPC_WheeledVehicleSettings) -> R) -> R {
+    let curves: Vec<_> = s.wheels.iter().map(|w| (curve(&w.longitudinal_friction), curve(&w.lateral_friction))).collect();
+    let wheels: Vec<sys::JPC_WheelSettingsWV> = s
+        .wheels
+        .iter()
+        .zip(&curves)
+        .map(|(w, (long, lat))| {
+            let (long_ptr, long_len) = curve_ptr(long);
+            let (lat_ptr, lat_len) = curve_ptr(lat);
+            sys::JPC_WheelSettingsWV {
+                position: w.position.into(),
+                suspension_force_point: w.suspension_force_point.into(),
+                suspension_direction: w.suspension_direction.into(),
+                steering_axis: w.steering_axis.into(),
+                wheel_up: w.wheel_up.into(),
+                wheel_forward: w.wheel_forward.into(),
+                suspension_min_length: w.suspension_min_length,
+                suspension_max_length: w.suspension_max_length,
+                suspension_preload_length: w.suspension_preload_length,
+                suspension_spring: w.suspension_spring.to_sys(),
+                radius: w.radius,
+                width: w.width,
+                enable_suspension_force_point: w.enable_suspension_force_point,
+                inertia: w.inertia,
+                angular_damping: w.angular_damping,
+                max_steer_angle: w.max_steer_angle,
+                longitudinal_friction: long_ptr,
+                num_longitudinal_friction: long_len,
+                lateral_friction: lat_ptr,
+                num_lateral_friction: lat_len,
+                max_brake_torque: w.max_brake_torque,
+                max_hand_brake_torque: w.max_hand_brake_torque,
+            }
+        })
+        .collect();
+    let bars = anti_roll_bars_sys(&s.anti_roll_bars);
+    let differentials: Vec<sys::JPC_VehicleDifferentialSettings> = s
+        .differentials
+        .iter()
+        .map(|d| sys::JPC_VehicleDifferentialSettings {
+            left_wheel: wheel_index(d.left_wheel),
+            right_wheel: wheel_index(d.right_wheel),
+            differential_ratio: d.differential_ratio,
+            left_right_split: d.left_right_split,
+            limited_slip_ratio: d.limited_slip_ratio,
+            engine_torque_ratio: d.engine_torque_ratio,
+        })
+        .collect();
+    let torque = curve(&s.engine.normalized_torque);
+    let raw = sys::JPC_WheeledVehicleSettings {
+        base: s.common.to_sys(),
+        up: s.up.into(),
+        forward: s.forward.into(),
+        max_pitch_roll_angle: s.max_pitch_roll_angle,
+        wheels: wheels.as_ptr(),
+        num_wheels: wheels.len() as u32,
+        anti_roll_bars: bars.as_ptr(),
+        num_anti_roll_bars: bars.len() as u32,
+        engine: s.engine.to_sys(&torque),
+        transmission: s.transmission.to_sys(),
+        differentials: differentials.as_ptr(),
+        num_differentials: differentials.len() as u32,
+        differential_limited_slip_ratio: s.differential_limited_slip_ratio,
+    };
+    f(&raw)
+}
+
+fn with_tracked_sys<R>(s: &TrackedVehicleSettings, f: impl FnOnce(&sys::JPC_TrackedVehicleSettings) -> R) -> R {
+    let wheels: Vec<sys::JPC_WheelSettingsTV> = s
+        .wheels
+        .iter()
+        .map(|w| sys::JPC_WheelSettingsTV {
+            position: w.position.into(),
+            suspension_force_point: w.suspension_force_point.into(),
+            suspension_direction: w.suspension_direction.into(),
+            steering_axis: w.steering_axis.into(),
+            wheel_up: w.wheel_up.into(),
+            wheel_forward: w.wheel_forward.into(),
+            suspension_min_length: w.suspension_min_length,
+            suspension_max_length: w.suspension_max_length,
+            suspension_preload_length: w.suspension_preload_length,
+            suspension_spring: w.suspension_spring.to_sys(),
+            radius: w.radius,
+            width: w.width,
+            enable_suspension_force_point: w.enable_suspension_force_point,
+            longitudinal_friction: w.longitudinal_friction,
+            lateral_friction: w.lateral_friction,
+        })
+        .collect();
+    let bars = anti_roll_bars_sys(&s.anti_roll_bars);
+    let torque = curve(&s.engine.normalized_torque);
+    let track = |t: &VehicleTrackSettings| sys::JPC_VehicleTrackSettings {
+        driven_wheel: t.driven_wheel,
+        // An empty track must still be rejected by joltc rather than read through a null pointer, so it keeps a valid one.
+        wheels: if t.wheels.is_empty() { NonNull::dangling().as_ptr() } else { t.wheels.as_ptr() },
+        num_wheels: u32::try_from(t.wheels.len()).unwrap_or(u32::MAX),
+        inertia: t.inertia,
+        angular_damping: t.angular_damping,
+        max_brake_torque: t.max_brake_torque,
+        differential_ratio: t.differential_ratio,
+    };
+    let raw = sys::JPC_TrackedVehicleSettings {
+        base: s.common.to_sys(),
+        up: s.up.into(),
+        forward: s.forward.into(),
+        max_pitch_roll_angle: s.max_pitch_roll_angle,
+        wheels: wheels.as_ptr(),
+        num_wheels: wheels.len() as u32,
+        anti_roll_bars: bars.as_ptr(),
+        num_anti_roll_bars: bars.len() as u32,
+        engine: s.engine.to_sys(&torque),
+        transmission: s.transmission.to_sys(),
+        tracks: [track(&s.tracks[0]), track(&s.tracks[1])],
+    };
+    f(&raw)
+}
+
+enum VehicleSettingsRef<'a> {
+    Wheeled(&'a WheeledVehicleSettings),
+    Motorcycle(&'a MotorcycleSettings),
+    Tracked(&'a TrackedVehicleSettings),
+}
+
 /// Settings plus tester, so vehicle creation can go through the system's constraint registry.
 struct VehicleCreation<'a> {
-    settings: &'a WheeledVehicleSettings,
+    settings: VehicleSettingsRef<'a>,
     tester: &'a VehicleCollisionTester,
 }
 
@@ -312,105 +642,36 @@ impl ConstraintSettings for VehicleCreation<'_> {
 
     unsafe fn create(&self, system: *mut sys::JPC_PhysicsSystem, body1: u32, body2: u32) -> *mut sys::JPC_Constraint {
         debug_assert_eq!(body1, sys::JPC_BODY_ID_INVALID);
-        let s = self.settings;
-        let curves: Vec<_> = s.wheels.iter().map(|w| (curve(&w.longitudinal_friction), curve(&w.lateral_friction))).collect();
-        let wheels: Vec<sys::JPC_WheelSettingsWV> = s
-            .wheels
-            .iter()
-            .zip(&curves)
-            .map(|(w, (long, lat))| {
-                let (long_ptr, long_len) = curve_ptr(long);
-                let (lat_ptr, lat_len) = curve_ptr(lat);
-                sys::JPC_WheelSettingsWV {
-                    position: w.position.into(),
-                    suspension_force_point: w.suspension_force_point.into(),
-                    suspension_direction: w.suspension_direction.into(),
-                    steering_axis: w.steering_axis.into(),
-                    wheel_up: w.wheel_up.into(),
-                    wheel_forward: w.wheel_forward.into(),
-                    suspension_min_length: w.suspension_min_length,
-                    suspension_max_length: w.suspension_max_length,
-                    suspension_preload_length: w.suspension_preload_length,
-                    suspension_spring: w.suspension_spring.to_sys(),
-                    radius: w.radius,
-                    width: w.width,
-                    enable_suspension_force_point: w.enable_suspension_force_point,
-                    inertia: w.inertia,
-                    angular_damping: w.angular_damping,
-                    max_steer_angle: w.max_steer_angle,
-                    longitudinal_friction: long_ptr,
-                    num_longitudinal_friction: long_len,
-                    lateral_friction: lat_ptr,
-                    num_lateral_friction: lat_len,
-                    max_brake_torque: w.max_brake_torque,
-                    max_hand_brake_torque: w.max_hand_brake_torque,
-                }
-            })
-            .collect();
-        let bars: Vec<sys::JPC_VehicleAntiRollBar> = s
-            .anti_roll_bars
-            .iter()
-            .map(|b| sys::JPC_VehicleAntiRollBar {
-                left_wheel: wheel_index(Some(b.left_wheel)),
-                right_wheel: wheel_index(Some(b.right_wheel)),
-                stiffness: b.stiffness,
-            })
-            .collect();
-        let differentials: Vec<sys::JPC_VehicleDifferentialSettings> = s
-            .differentials
-            .iter()
-            .map(|d| sys::JPC_VehicleDifferentialSettings {
-                left_wheel: wheel_index(d.left_wheel),
-                right_wheel: wheel_index(d.right_wheel),
-                differential_ratio: d.differential_ratio,
-                left_right_split: d.left_right_split,
-                limited_slip_ratio: d.limited_slip_ratio,
-                engine_torque_ratio: d.engine_torque_ratio,
-            })
-            .collect();
-        let torque = curve(&s.engine.normalized_torque);
-        let (torque_ptr, torque_len) = curve_ptr(&torque);
-        let t = &s.transmission;
-        let raw = sys::JPC_WheeledVehicleSettings {
-            base: s.common.to_sys(),
-            up: s.up.into(),
-            forward: s.forward.into(),
-            max_pitch_roll_angle: s.max_pitch_roll_angle,
-            wheels: wheels.as_ptr(),
-            num_wheels: wheels.len() as u32,
-            anti_roll_bars: bars.as_ptr(),
-            num_anti_roll_bars: bars.len() as u32,
-            engine: sys::JPC_VehicleEngineSettings {
-                max_torque: s.engine.max_torque,
-                min_rpm: s.engine.min_rpm,
-                max_rpm: s.engine.max_rpm,
-                normalized_torque: torque_ptr,
-                num_normalized_torque: torque_len,
-                inertia: s.engine.inertia,
-                angular_damping: s.engine.angular_damping,
-            },
-            transmission: sys::JPC_VehicleTransmissionSettings {
-                mode: match t.mode {
-                    TransmissionMode::Auto => sys::JPC_TRANSMISSION_MODE_AUTO,
-                    TransmissionMode::Manual => sys::JPC_TRANSMISSION_MODE_MANUAL,
-                },
-                gear_ratios: t.gear_ratios.as_ptr(),
-                num_gear_ratios: t.gear_ratios.len() as u32,
-                reverse_gear_ratios: t.reverse_gear_ratios.as_ptr(),
-                num_reverse_gear_ratios: t.reverse_gear_ratios.len() as u32,
-                switch_time: t.switch_time,
-                clutch_release_time: t.clutch_release_time,
-                switch_latency: t.switch_latency,
-                shift_up_rpm: t.shift_up_rpm,
-                shift_down_rpm: t.shift_down_rpm,
-                clutch_strength: t.clutch_strength,
-            },
-            differentials: differentials.as_ptr(),
-            num_differentials: differentials.len() as u32,
-            differential_limited_slip_ratio: s.differential_limited_slip_ratio,
-        };
-        unsafe { sys::JPC_PhysicsSystem_CreateWheeledVehicle(system, &raw, body2, self.tester.as_raw()) }
+        let tester = self.tester.as_raw();
+        match self.settings {
+            VehicleSettingsRef::Wheeled(s) => {
+                with_wheeled_sys(s, |raw| unsafe { sys::JPC_PhysicsSystem_CreateWheeledVehicle(system, raw, body2, tester) })
+            }
+            VehicleSettingsRef::Motorcycle(m) => with_wheeled_sys(&m.vehicle, |vehicle| {
+                let raw = sys::JPC_MotorcycleSettings {
+                    vehicle: *vehicle,
+                    max_lean_angle: m.max_lean_angle,
+                    lean_spring_constant: m.lean_spring_constant,
+                    lean_spring_damping: m.lean_spring_damping,
+                    lean_spring_integration_coefficient: m.lean_spring_integration_coefficient,
+                    lean_spring_integration_coefficient_decay: m.lean_spring_integration_coefficient_decay,
+                    lean_smoothing_factor: m.lean_smoothing_factor,
+                };
+                unsafe { sys::JPC_PhysicsSystem_CreateMotorcycle(system, &raw, body2, tester) }
+            }),
+            VehicleSettingsRef::Tracked(s) => {
+                with_tracked_sys(s, |raw| unsafe { sys::JPC_PhysicsSystem_CreateTrackedVehicle(system, raw, body2, tester) })
+            }
+        }
     }
+}
+
+/// What kind of vehicle a [`VehicleMut`] is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum VehicleKind {
+    Wheeled,
+    Motorcycle,
+    Tracked,
 }
 
 /// State of one wheel after the last update.
@@ -427,6 +688,7 @@ pub struct WheelState {
     pub angular_velocity: f32,
     pub rotation_angle: f32,
     pub steer_angle: f32,
+    /// Wheeled vehicles and motorcycles only (0 for tracked vehicles).
     pub longitudinal_slip: f32,
     pub lateral_slip: f32,
 }
@@ -447,13 +709,96 @@ impl VehicleMut<'_> {
         BodyId(unsafe { sys::JPC_Vehicle_GetBody(self.ptr()) })
     }
 
-    /// `forward` and `right` in -1..=1, `brake` and `hand_brake` in 0..=1 (clamped). Wakes the vehicle when any
-    /// input is non-zero.
-    pub fn set_driver_input(&mut self, forward: f32, right: f32, brake: f32, hand_brake: f32) {
-        unsafe { sys::JPC_Vehicle_SetDriverInput(self.ptr(), forward, right, brake, hand_brake) };
-        if forward != 0.0 || right != 0.0 || brake != 0.0 || hand_brake != 0.0 {
+    pub fn kind(&self) -> VehicleKind {
+        match unsafe { sys::JPC_Vehicle_GetKind(self.ptr()) } {
+            sys::JPC_VEHICLE_KIND_MOTORCYCLE => VehicleKind::Motorcycle,
+            sys::JPC_VEHICLE_KIND_TRACKED => VehicleKind::Tracked,
+            _ => VehicleKind::Wheeled,
+        }
+    }
+
+    fn expect_kind(&self, kind: VehicleKind) -> Result<()> {
+        if self.kind() == kind {
+            return Ok(());
+        }
+        Err(Error::new(match kind {
+            VehicleKind::Wheeled => "vehicle is not a wheeled vehicle",
+            VehicleKind::Motorcycle => "vehicle is not a motorcycle",
+            VehicleKind::Tracked => "vehicle is not a tracked vehicle",
+        }))
+    }
+
+    fn wake_if(&self, active: bool) {
+        if active {
             unsafe { sys::JPC_BodyInterface_ActivateConstraint(self.body_interface, self.ptr()) };
         }
+    }
+
+    /// Wheeled vehicles and motorcycles: `forward` and `right` in -1..=1, `brake` and `hand_brake` in 0..=1
+    /// (clamped). Wakes the vehicle when any input is non-zero. Tracked vehicles ignore it; use
+    /// [`set_track_input`](Self::set_track_input).
+    pub fn set_driver_input(&mut self, forward: f32, right: f32, brake: f32, hand_brake: f32) {
+        unsafe { sys::JPC_Vehicle_SetDriverInput(self.ptr(), forward, right, brake, hand_brake) };
+        self.wake_if(self.kind() != VehicleKind::Tracked && (forward != 0.0 || right != 0.0 || brake != 0.0 || hand_brake != 0.0));
+    }
+
+    /// Tracked vehicles: `forward` in -1..=1 and `brake` in 0..=1. The ratios in -1..=1 scale each track's speed
+    /// to steer: `(1, 1)` drives straight, `(1, -1)` turns on the spot. Ratios too close to 0 are pushed away from
+    /// it. Wakes the vehicle when driving or braking.
+    pub fn set_track_input(&mut self, forward: f32, left_ratio: f32, right_ratio: f32, brake: f32) -> Result<()> {
+        self.expect_kind(VehicleKind::Tracked)?;
+        unsafe { sys::JPC_Vehicle_SetTrackInput(self.ptr(), forward, left_ratio, right_ratio, brake) };
+        self.wake_if(forward != 0.0 || brake != 0.0);
+        Ok(())
+    }
+
+    /// Angular velocity (rad/s) of a track's driven wheel; `None` if this is not a tracked vehicle.
+    pub fn track_angular_velocity(&self, side: TrackSide) -> Option<f32> {
+        let mut velocity = 0.0;
+        unsafe { sys::JPC_Vehicle_GetTrackAngularVelocity(self.ptr(), side as u32, &mut velocity) }.then_some(velocity)
+    }
+
+    /// Motorcycles: whether the bike actively leans into turns (on by default).
+    pub fn set_lean_controller_enabled(&mut self, enabled: bool) -> Result<()> {
+        self.expect_kind(VehicleKind::Motorcycle)?;
+        unsafe { sys::JPC_Motorcycle_SetLeanControllerEnabled(self.ptr(), enabled) };
+        Ok(())
+    }
+
+    pub fn lean_controller_enabled(&self) -> bool {
+        unsafe { sys::JPC_Motorcycle_IsLeanControllerEnabled(self.ptr()) }
+    }
+
+    /// Motorcycles: whether steering is limited to what the current lean allows (on by default).
+    pub fn set_lean_steering_limit_enabled(&mut self, enabled: bool) -> Result<()> {
+        self.expect_kind(VehicleKind::Motorcycle)?;
+        unsafe { sys::JPC_Motorcycle_SetLeanSteeringLimitEnabled(self.ptr(), enabled) };
+        Ok(())
+    }
+
+    pub fn lean_steering_limit_enabled(&self) -> bool {
+        unsafe { sys::JPC_Motorcycle_IsLeanSteeringLimitEnabled(self.ptr()) }
+    }
+
+    /// Motorcycles: retunes the lean spring, with the same meaning as the fields of [`MotorcycleSettings`].
+    pub fn set_lean_spring(
+        &mut self,
+        spring_constant: f32,
+        damping: f32,
+        integration_coefficient: f32,
+        integration_coefficient_decay: f32,
+        smoothing_factor: f32,
+    ) -> Result<()> {
+        self.expect_kind(VehicleKind::Motorcycle)?;
+        let ok = unsafe {
+            sys::JPC_Motorcycle_SetLeanSpring(self.ptr(), spring_constant, damping, integration_coefficient, integration_coefficient_decay, smoothing_factor)
+        };
+        if ok { Ok(()) } else { Err(Error::last()) }
+    }
+
+    /// Motorcycles: distance between the front and rear wheel along the forward axis.
+    pub fn wheel_base(&self) -> Option<f32> {
+        (self.kind() == VehicleKind::Motorcycle).then(|| unsafe { sys::JPC_Motorcycle_GetWheelBase(self.ptr()) })
     }
 
     pub fn wheel_count(&self) -> usize {
@@ -536,7 +881,18 @@ impl PhysicsSystem {
     /// Turns a dynamic body into a vehicle. The vehicle is a constraint: remove it with
     /// [`remove_constraint`](Self::remove_constraint); it goes away with its body.
     pub fn add_vehicle(&mut self, settings: &WheeledVehicleSettings, body: BodyId, tester: &VehicleCollisionTester) -> Result<ConstraintId> {
-        self.add_constraint_to_world(&VehicleCreation { settings, tester }, body)
+        self.add_constraint_to_world(&VehicleCreation { settings: VehicleSettingsRef::Wheeled(settings), tester }, body)
+    }
+
+    /// Like [`add_vehicle`](Self::add_vehicle) for a motorcycle, which needs at least two wheels.
+    pub fn add_motorcycle(&mut self, settings: &MotorcycleSettings, body: BodyId, tester: &VehicleCollisionTester) -> Result<ConstraintId> {
+        self.add_constraint_to_world(&VehicleCreation { settings: VehicleSettingsRef::Motorcycle(settings), tester }, body)
+    }
+
+    /// Like [`add_vehicle`](Self::add_vehicle) for a tracked vehicle such as a tank. Drive it with
+    /// [`VehicleMut::set_track_input`].
+    pub fn add_tracked_vehicle(&mut self, settings: &TrackedVehicleSettings, body: BodyId, tester: &VehicleCollisionTester) -> Result<ConstraintId> {
+        self.add_constraint_to_world(&VehicleCreation { settings: VehicleSettingsRef::Tracked(settings), tester }, body)
     }
 
     /// `None` if the id is gone or not a vehicle.

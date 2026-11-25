@@ -31,7 +31,9 @@ impl std::ops::BitOr for StateParts {
 /// A saved simulation state, for rollback netcode, replays or undo. Restoring all parts onto the same world
 /// reproduces the simulation exactly (with `deterministic_simulation` on, which is the default).
 ///
-/// Character state is not included.
+/// Characters are not included: save them separately with
+/// [`CharacterVirtual::save_state`](crate::CharacterVirtual::save_state) and
+/// [`Character::save_state`](crate::Character::save_state), which return snapshots of the same type.
 pub struct PhysicsSnapshot {
     raw: NonNull<sys::JPC_PhysicsSnapshot>,
 }
@@ -41,6 +43,14 @@ unsafe impl Send for PhysicsSnapshot {}
 unsafe impl Sync for PhysicsSnapshot {}
 
 impl PhysicsSnapshot {
+    pub(crate) fn from_raw(raw: *mut sys::JPC_PhysicsSnapshot) -> Self {
+        Self { raw: NonNull::new(raw).expect("allocation failed") }
+    }
+
+    pub(crate) fn as_raw(&self) -> *const sys::JPC_PhysicsSnapshot {
+        self.raw.as_ptr()
+    }
+
     /// The serialized state, e.g. to send over the network.
     pub fn as_bytes(&self) -> &[u8] {
         unsafe {
@@ -55,7 +65,8 @@ impl PhysicsSnapshot {
     /// # Safety
     /// Jolt restores state without validating it. The bytes must come from `as_bytes` of a snapshot of a world
     /// with exactly the same bodies (ids, shapes, motion types) and constraints, in the same order, as the one it
-    /// is restored onto. Anything else, including corrupted or untrusted network data, is undefined behaviour.
+    /// is restored onto, or of a character restored onto a character. Anything else, including corrupted or
+    /// untrusted network data, is undefined behaviour.
     pub unsafe fn from_bytes(bytes: &[u8]) -> Self {
         crate::ensure_init();
         let raw = unsafe { sys::JPC_PhysicsSnapshot_CreateFromData(bytes.as_ptr().cast(), bytes.len()) };
@@ -77,12 +88,12 @@ impl fmt::Debug for PhysicsSnapshot {
 
 impl PhysicsSystem {
     pub fn save_state(&self, parts: StateParts) -> PhysicsSnapshot {
-        let raw = unsafe { sys::JPC_PhysicsSystem_SaveState(self.raw(), parts.0 as sys::JPC_StateParts) };
-        PhysicsSnapshot { raw: NonNull::new(raw).expect("allocation failed") }
+        PhysicsSnapshot::from_raw(unsafe { sys::JPC_PhysicsSystem_SaveState(self.raw(), parts.0 as sys::JPC_StateParts) })
     }
 
     /// Restores a snapshot of this system. Fails if bodies, shapes, motion types or constraints were added,
-    /// removed or changed since it was taken. A failure part way through can leave the world partly restored.
+    /// removed or changed since it was taken, or for a character snapshot. A failure part way through can leave
+    /// the world partly restored.
     pub fn restore_state(&mut self, snapshot: &PhysicsSnapshot) -> Result<()> {
         if unsafe { sys::JPC_PhysicsSystem_RestoreState(self.raw(), snapshot.raw.as_ptr()) } { Ok(()) } else { Err(Error::last()) }
     }

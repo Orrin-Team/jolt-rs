@@ -2,6 +2,8 @@
 
 #include <cfloat>
 
+#include <Jolt/Physics/StateRecorderImpl.h>
+
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
@@ -638,3 +640,64 @@ void JPC_Character_SetUp(JPC_Character *c, JPC_Vec3 up) { c->mCharacter->SetUp(T
 void JPC_Character_SetMaxSlopeAngle(JPC_Character *c, float angle) { c->mCharacter->SetMaxSlopeAngle(angle); }
 void JPC_Character_GetGround(const JPC_Character *c, JPC_CharacterGround *out_ground) { GetGround(*c->mCharacter, out_ground); }
 bool JPC_Character_IsSupported(const JPC_Character *c) { return c->mCharacter->IsSupported(); }
+
+// ---------------------------------------------------------------------------
+// Character snapshots
+// ---------------------------------------------------------------------------
+
+static JPC_PhysicsSnapshot *SaveCharacter(const CharacterBase &inCharacter, JPC_PhysicsSnapshot::EKind inKind, const void *inOwner, uint64 inVersion)
+{
+	StateRecorderImpl recorder;
+	inCharacter.SaveState(recorder);
+	JPC_PhysicsSnapshot *snapshot = new JPC_PhysicsSnapshot;
+	snapshot->mData = recorder.GetData();
+	snapshot->mKind = inKind;
+	snapshot->mOwner = inOwner;
+	snapshot->mVersion = inVersion;
+	return snapshot;
+}
+
+static bool RestoreCharacter(CharacterBase &ioCharacter, const JPC_PhysicsSnapshot *inSnapshot, JPC_PhysicsSnapshot::EKind inKind, const void *inOwner, uint64 inVersion)
+{
+	if (inSnapshot->mKind != JPC_PhysicsSnapshot::EKind::Raw
+		&& (inSnapshot->mKind != inKind || inSnapshot->mOwner != inOwner || inSnapshot->mVersion != inVersion))
+	{
+		JPC_SetError("Snapshot was not taken of this character");
+		return false;
+	}
+	StateRecorderImpl recorder;
+	recorder.WriteBytes(inSnapshot->mData.data(), inSnapshot->mData.size());
+	recorder.Rewind();
+	ioCharacter.RestoreState(recorder);
+	if (recorder.IsFailed())
+	{
+		JPC_SetError("Snapshot does not match the character");
+		return false;
+	}
+	return true;
+}
+
+JPC_PhysicsSnapshot *JPC_CharacterVirtual_SaveState(const JPC_CharacterVirtual *character)
+{
+	return SaveCharacter(*character->mCharacter, JPC_PhysicsSnapshot::EKind::CharacterVirtual, character, character->mCharacter->GetID().GetValue());
+}
+
+bool JPC_CharacterVirtual_RestoreState(JPC_CharacterVirtual *character, const JPC_PhysicsSnapshot *snapshot)
+{
+	bool ok = RestoreCharacter(*character->mCharacter, snapshot, JPC_PhysicsSnapshot::EKind::CharacterVirtual, character, character->mCharacter->GetID().GetValue());
+	// Restoring resets the ground and contact materials to the default one
+	character->PinMaterials();
+	return ok;
+}
+
+JPC_PhysicsSnapshot *JPC_Character_SaveState(const JPC_Character *character)
+{
+	return SaveCharacter(*character->mCharacter, JPC_PhysicsSnapshot::EKind::Character, character, ToC(character->mCharacter->GetBodyID()));
+}
+
+bool JPC_Character_RestoreState(JPC_Character *character, const JPC_PhysicsSnapshot *snapshot)
+{
+	bool ok = RestoreCharacter(*character->mCharacter, snapshot, JPC_PhysicsSnapshot::EKind::Character, character, ToC(character->mCharacter->GetBodyID()));
+	character->mGroundMaterial = character->mCharacter->GetGroundMaterial();
+	return ok;
+}

@@ -21,8 +21,8 @@ use jolt_sys as sys;
 use crate::listener::PanicSlot;
 use crate::system::SystemInner;
 use crate::{
-    Activation, AllowedDofs, BackFaceMode, Body, BodyId, Error, Mat44, MotionType, ObjectLayer, PhysicsMaterial, PhysicsSystem,
-    QueryFilter, Quat, Result, Shape, SubShapeId, TempAllocator, Vec3,
+    Activation, AllowedDofs, BackFaceMode, Body, BodyId, Error, Mat44, MotionType, ObjectLayer, PhysicsMaterial, PhysicsSnapshot,
+    PhysicsSystem, QueryFilter, Quat, Result, Shape, SubShapeId, TempAllocator, Vec3,
 };
 
 /// Identifies a [`CharacterVirtual`].
@@ -765,6 +765,20 @@ impl CharacterVirtual {
         unsafe { sys::JPC_CharacterVirtual_SetEnhancedInternalEdgeRemoval(self.ptr(), enabled) }
     }
 
+    /// Saves the character's position, rotation, velocity, ground state and the contacts it collided with, for
+    /// rollback together with [`PhysicsSystem::save_state`]. The user data and materials of the ground and contacts
+    /// are not saved; after restoring they read as 0 and the default material until the next update.
+    pub fn save_state(&self) -> PhysicsSnapshot {
+        PhysicsSnapshot::from_raw(unsafe { sys::JPC_CharacterVirtual_SaveState(self.ptr()) })
+    }
+
+    /// Restores a snapshot from [`save_state`](Self::save_state) of this character. Fails for a snapshot of any
+    /// other character or of a physics system. Restore the physics snapshot as well to move the inner body back.
+    pub fn restore_state(&mut self, snapshot: &PhysicsSnapshot) -> Result<()> {
+        let _lock = self.group_lock();
+        if unsafe { sys::JPC_CharacterVirtual_RestoreState(self.ptr(), snapshot.as_raw()) } { Ok(()) } else { Err(Error::last()) }
+    }
+
     /// Destroys the character and its inner body right away. Needs exclusive access to the system because the
     /// inner body is freed.
     pub fn destroy(self, system: &mut PhysicsSystem) {
@@ -1143,6 +1157,18 @@ impl Character {
 
     pub fn is_supported(&self) -> bool {
         unsafe { sys::JPC_Character_IsSupported(self.raw.as_ptr()) }
+    }
+
+    /// Saves the ground state, for rollback together with [`PhysicsSystem::save_state`] (which has the body).
+    /// The ground's user data and material are not saved.
+    pub fn save_state(&self) -> PhysicsSnapshot {
+        PhysicsSnapshot::from_raw(unsafe { sys::JPC_Character_SaveState(self.raw.as_ptr()) })
+    }
+
+    /// Restores a snapshot from [`save_state`](Self::save_state) of this character. Fails for a snapshot of
+    /// anything else.
+    pub fn restore_state(&mut self, snapshot: &PhysicsSnapshot) -> Result<()> {
+        if unsafe { sys::JPC_Character_RestoreState(self.raw.as_ptr(), snapshot.as_raw()) } { Ok(()) } else { Err(Error::last()) }
     }
 
     /// Removes and destroys the character and its body right away. Needs exclusive access to the system because

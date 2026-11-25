@@ -64,6 +64,7 @@
 #include <memory>
 #include <mutex>
 #include <shared_mutex>
+#include <string>
 
 #ifdef JPH_DOUBLE_PRECISION
 #error "joltc currently only supports single precision builds of Jolt"
@@ -483,6 +484,25 @@ struct JPC_PhysicsSystem
 	{
 		mProtectedBodies.erase(inBody.GetIndexAndSequenceNumber());
 	}
+};
+
+// ---------------------------------------------------------------------------
+// Snapshots
+// ---------------------------------------------------------------------------
+
+struct JPC_PhysicsSnapshot
+{
+	JPH_OVERRIDE_NEW_DELETE
+
+	// Raw snapshots are made from bytes and restored onto anything without checks
+	enum class EKind : uint8 { Raw, Physics, CharacterVirtual, Character };
+
+	std::string				mData;
+	EKind					mKind = EKind::Raw;
+	// The system or character the snapshot was taken of, plus something that changes when the owner's address could
+	// be reused or its structure changes: the system's structure version, or the character's id
+	const void *			mOwner = nullptr;
+	uint64					mVersion = 0;
 };
 
 class QueryBroadPhaseLayerFilter final : public BroadPhaseLayerFilter

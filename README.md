@@ -46,17 +46,17 @@ system.update(1.0 / 60.0, 1, &mut temp, &jobs)?;
 
 | Area | Status |
 |---|---|
-| Shapes | ✅ sphere, box, capsule, tapered capsule, cylinder, tapered cylinder, convex hull, mesh, height field, plane, empty, static compound, rotated/translated, scaled, offset COM · ❌ mutable compound |
+| Shapes | ✅ sphere, box, capsule, tapered capsule, cylinder, tapered cylinder, convex hull, mesh, height field, plane, empty, static and mutable compound (editable in place, also on live bodies), rotated/translated, scaled, offset COM, compound child lookup from hits, binary serialization |
 | Bodies | ✅ creation settings, add/remove/destroy (single and batch), transforms, velocities, forces, impulses, buoyancy, kinematics, motion type/quality, material properties, collision groups, bounds, mass, user data |
 | Queries | ✅ ray (closest/all), point, collide shape, cast shape, broad phase (box, sphere, point, oriented box, ray, box cast), back face / active edge / tolerance settings, layer and body filters · ❌ collect-faces |
 | Constraints | ✅ fixed, point, distance, hinge, slider, cone, swing-twist, six-DOF, gear, rack-and-pinion, pulley, path (Hermite), motors and limits |
-| Vehicles | ✅ wheeled vehicles (engine, transmission, differentials, anti-roll bars, friction curves, ray/sphere/cylinder testers) · ❌ tracked vehicles, motorcycles |
+| Vehicles | ✅ wheeled vehicles (engine, transmission, differentials, anti-roll bars, friction curves, ray/sphere/cylinder testers), motorcycles (lean control), tracked vehicles |
 | Ragdolls | ✅ skeletons (joint hierarchy, local ↔ model space poses), ragdoll settings (any supported joint type, stabilisation, parent-child collision filtering), ragdolls (pose, kinematic and motor driving, impulses) · ❌ skeletal animation, skeleton mapping |
-| Snapshots | ✅ save/restore (global, bodies, contacts, constraints), bytes for networking · ❌ character state |
+| Snapshots | ✅ save/restore (global, bodies, contacts, constraints), character state, bytes for networking |
 | Characters | ✅ `CharacterVirtual` (stairs, floor sticking, shape switching, inner body, listener, character-vs-character), rigid `Character` |
 | Listeners | ✅ contact, body activation, step |
 | Materials | ✅ per shape, mesh triangle and height field cell, reported by hits, contacts and characters |
-| Not started | ❌ soft bodies, mutable compounds, debug renderer, shape serialization, double precision |
+| Not started | ❌ soft bodies, debug renderer, double precision |
 
 ## Safety
 
@@ -66,7 +66,9 @@ system.update(1.0 / 60.0, 1, &mut temp, &jobs)?;
 - Constraints are owned by the system and die with their bodies. Characters and ragdolls keep the system alive, own their bodies, and defer native destruction until no update can be running.
 - Query collectors run after the native query returns. Body filters and listeners run inside Jolt and must not use the body interface.
 - Vehicles and step listeners run one after another from a single Jolt step listener, so they never race each other.
-- In-memory snapshots only restore onto the same, structurally unchanged world; restoring raw bytes is `unsafe`.
+- In-memory snapshots only restore onto the same, structurally unchanged world (or the same character); restoring raw bytes is `unsafe`.
+- Shapes stay immutable once shared. A body's mutable compound is edited under the body's write lock, and if anything else holds the shape the body gets its own copy first.
+- Loading serialized shapes is `unsafe`: the header, Jolt version, shape types, references and length are checked, the rest is trusted.
 
 ## Development
 

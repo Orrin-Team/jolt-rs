@@ -228,6 +228,12 @@ typedef enum JPC_GroundState {
     JPC_GROUND_STATE_IN_AIR = 3,
 } JPC_GroundState;
 
+typedef enum JPC_VehicleKind {
+    JPC_VEHICLE_KIND_WHEELED = 0,
+    JPC_VEHICLE_KIND_MOTORCYCLE = 1,
+    JPC_VEHICLE_KIND_TRACKED = 2,
+} JPC_VehicleKind;
+
 typedef enum JPC_MotorState {
     JPC_MOTOR_STATE_OFF = 0,
     JPC_MOTOR_STATE_VELOCITY = 1,
@@ -341,6 +347,68 @@ JPC_API JPC_Vec3 JPC_Shape_GetCenterOfMass(const JPC_Shape *shape);
 JPC_API float JPC_Shape_GetInnerRadius(const JPC_Shape *shape);
 JPC_API float JPC_Shape_GetVolume(const JPC_Shape *shape);
 JPC_API JPC_MassProperties JPC_Shape_GetMassProperties(const JPC_Shape *shape);
+
+/* ------------------------------------------------------------------------- */
+/* Compound shapes                                                            */
+/* ------------------------------------------------------------------------- */
+
+/* A compound whose children can be added, removed and moved after creation. */
+JPC_API JPC_Shape *JPC_MutableCompoundShape_Create(const JPC_CompoundSubShape *sub_shapes, uint32_t num_sub_shapes);
+
+/* Number of children of a static or mutable compound, 0 for other shapes. */
+JPC_API uint32_t JPC_CompoundShape_GetNumSubShapes(const JPC_Shape *shape);
+/* out->position and out->rotation place the child's origin in the compound, as passed when it was added or last
+ * moved. out->shape is a new reference. Returns false for a non compound or an out of range index. */
+JPC_API bool JPC_CompoundShape_GetSubShape(const JPC_Shape *shape, uint32_t index, JPC_CompoundSubShape *out_sub_shape);
+/* Splits a sub shape id from a hit on this compound into the child index and the id within that child.
+ * Returns false for a non compound or an id that does not name a child. */
+JPC_API bool JPC_CompoundShape_GetSubShapeIndexFromID(const JPC_Shape *shape, JPC_SubShapeID id, uint32_t *out_index, JPC_SubShapeID *out_remainder);
+
+/* Editing a mutable compound. Only edit a shape nothing else uses at the same time: one held by a single owner,
+ * or the one handed to a JPC_BodyInterface_ModifyMutableCompound callback. Editing changes the meaning of sub
+ * shape ids from earlier hits. Each function fails (false / UINT32_MAX, with an error) for a shape that is not a
+ * mutable compound or an index out of range. */
+/* Inserts the child before index (index >= count appends) and returns its index. */
+JPC_API uint32_t JPC_MutableCompoundShape_AddShape(JPC_Shape *shape, JPC_Vec3 position, JPC_Quat rotation, const JPC_Shape *child, uint32_t user_data,
+                                                   uint32_t index);
+JPC_API bool JPC_MutableCompoundShape_RemoveShape(JPC_Shape *shape, uint32_t index);
+/* child may be NULL to keep the current child. */
+JPC_API bool JPC_MutableCompoundShape_ModifyShape(JPC_Shape *shape, uint32_t index, JPC_Vec3 position, JPC_Quat rotation, const JPC_Shape *child);
+/* Moves count children starting at start_index, faster than one at a time. */
+JPC_API bool JPC_MutableCompoundShape_ModifyShapes(JPC_Shape *shape, uint32_t start_index, uint32_t count, const JPC_Vec3 *positions,
+                                                   const JPC_Quat *rotations);
+/* Moves the compound's center of mass to the children's combined center of mass. Child positions are unchanged; a
+ * body edited through JPC_BodyInterface_ModifyMutableCompound keeps its world position. */
+JPC_API bool JPC_MutableCompoundShape_AdjustCenterOfMass(JPC_Shape *shape);
+
+typedef void (*JPC_MutableCompoundEditFn)(void *user_data, JPC_Shape *compound);
+
+/* Locks the body and calls fn with its mutable compound shape to edit with the functions above, then updates the
+ * body's bounds, center of mass, contact cache and (if update_mass_properties and the shape still has mass) mass
+ * and inertia. If anything else
+ * holds a reference to the shape the body first gets its own copy, so other users never see the change.
+ * fn runs with the body locked: it must not use a body interface. Returns false (without calling fn) if the body
+ * does not exist or its shape is not a mutable compound. */
+JPC_API bool JPC_BodyInterface_ModifyMutableCompound(JPC_BodyInterface *bi, JPC_BodyID id, JPC_MutableCompoundEditFn fn, void *user_data,
+                                                     bool update_mass_properties, JPC_Activation activation);
+
+/* ------------------------------------------------------------------------- */
+/* Shape serialization                                                        */
+/*                                                                            */
+/* Saves a shape with all its children in Jolt's binary format, so baked      */
+/* meshes and compounds load without being rebuilt. Shared children are      */
+/* stored once. Materials are stored by user data and come back as new        */
+/* materials with the same user data. The data only loads with the same Jolt  */
+/* version and platform (endianness, float format).                           */
+/* ------------------------------------------------------------------------- */
+
+typedef void (*JPC_WriteFn)(void *user_data, const void *data, size_t size);
+
+/* Calls write any number of times with consecutive pieces of the data. */
+JPC_API void JPC_Shape_SaveBinary(const JPC_Shape *shape, JPC_WriteFn write, void *user_data);
+/* Returns NULL with an error for data with a bad header, a different Jolt version, unknown shape types or
+ * truncation. Jolt does not validate the contents beyond that, so only load data this library saved. */
+JPC_API JPC_Shape *JPC_Shape_RestoreBinary(const void *data, size_t size);
 
 /* ------------------------------------------------------------------------- */
 /* Materials                                                                  */
@@ -860,7 +928,8 @@ JPC_API void JPC_PhysicsSystem_CastShape(const JPC_PhysicsSystem *system, const 
 /* system while no body, shape, motion type or constraint was added, removed */
 /* or changed since; otherwise restoring fails. Snapshots made from raw bytes */
 /* skip that check, so only feed them data saved from an identical world.    */
-/* Character state is not included.                                           */
+/* Characters are saved separately (JPC_CharacterVirtual_SaveState) and     */
+/* their snapshots restore only onto the character they came from.           */
 /* ------------------------------------------------------------------------- */
 
 JPC_API JPC_PhysicsSnapshot *JPC_PhysicsSystem_SaveState(const JPC_PhysicsSystem *system, JPC_StateParts parts);
@@ -1160,7 +1229,7 @@ JPC_API void JPC_SixDOFConstraint_SetTargetOrientationCS(JPC_Constraint *constra
 JPC_API JPC_Quat JPC_SixDOFConstraint_GetRotationInConstraintSpace(const JPC_Constraint *constraint);
 
 /* ------------------------------------------------------------------------- */
-/* Wheeled vehicles                                                           */
+/* Vehicles                                                                   */
 /*                                                                            */
 /* A vehicle is a constraint on its body; add it with                         */
 /* JPC_PhysicsSystem_AddConstraint. Vehicles and step listeners of a system   */
@@ -1291,10 +1360,98 @@ JPC_API void JPC_VehicleCollisionTester_Release(const JPC_VehicleCollisionTester
 JPC_API JPC_Constraint *JPC_PhysicsSystem_CreateWheeledVehicle(JPC_PhysicsSystem *system, const JPC_WheeledVehicleSettings *settings, JPC_BodyID body,
                                                                const JPC_VehicleCollisionTester *tester);
 
-/* The following must only be called on vehicle constraints. */
+/* A two wheeled vehicle that leans into turns. Usually wheel 0 is the front wheel and wheel 1 the rear wheel. */
+typedef struct JPC_MotorcycleSettings {
+    JPC_WheeledVehicleSettings vehicle;
+    /* Radians. */
+    float max_lean_angle;
+    float lean_spring_constant;
+    float lean_spring_damping;
+    float lean_spring_integration_coefficient;
+    float lean_spring_integration_coefficient_decay;
+    /* 0 follows the target lean immediately, towards 1 smooths it more. */
+    float lean_smoothing_factor;
+} JPC_MotorcycleSettings;
+
+JPC_API void JPC_MotorcycleSettings_SetDefault(JPC_MotorcycleSettings *settings);
+JPC_API JPC_Constraint *JPC_PhysicsSystem_CreateMotorcycle(JPC_PhysicsSystem *system, const JPC_MotorcycleSettings *settings, JPC_BodyID body,
+                                                           const JPC_VehicleCollisionTester *tester);
+
+/* A wheel of a tracked vehicle. It does not steer or brake by itself; the track does. */
+typedef struct JPC_WheelSettingsTV {
+    JPC_Vec3 position;
+    JPC_Vec3 suspension_force_point;
+    JPC_Vec3 suspension_direction;
+    JPC_Vec3 steering_axis;
+    JPC_Vec3 wheel_up;
+    JPC_Vec3 wheel_forward;
+    float suspension_min_length;
+    float suspension_max_length;
+    float suspension_preload_length;
+    JPC_SpringSettings suspension_spring;
+    float radius;
+    float width;
+    bool enable_suspension_force_point;
+    float longitudinal_friction;
+    float lateral_friction;
+} JPC_WheelSettingsTV;
+
+typedef struct JPC_VehicleTrackSettings {
+    /* The wheel the engine drives; must be one of wheels. */
+    uint32_t driven_wheel;
+    /* Indices of the wheels in this track. Every wheel of the vehicle must be in exactly one track. */
+    const uint32_t *wheels;
+    uint32_t num_wheels;
+    float inertia;
+    float angular_damping;
+    float max_brake_torque;
+    float differential_ratio;
+} JPC_VehicleTrackSettings;
+
+typedef struct JPC_TrackedVehicleSettings {
+    JPC_ConstraintSettings base;
+    JPC_Vec3 up;
+    JPC_Vec3 forward;
+    float max_pitch_roll_angle;
+    const JPC_WheelSettingsTV *wheels;
+    uint32_t num_wheels;
+    const JPC_VehicleAntiRollBar *anti_roll_bars;
+    uint32_t num_anti_roll_bars;
+    JPC_VehicleEngineSettings engine;
+    JPC_VehicleTransmissionSettings transmission;
+    /* Left and right. */
+    JPC_VehicleTrackSettings tracks[2];
+} JPC_TrackedVehicleSettings;
+
+/* Fill with Jolt's defaults (a tank-like engine and gear box, no wheels). Pointers point at static data owned by joltc. */
+JPC_API void JPC_WheelSettingsTV_SetDefault(JPC_WheelSettingsTV *settings);
+JPC_API void JPC_TrackedVehicleSettings_SetDefault(JPC_TrackedVehicleSettings *settings);
+JPC_API JPC_Constraint *JPC_PhysicsSystem_CreateTrackedVehicle(JPC_PhysicsSystem *system, const JPC_TrackedVehicleSettings *settings, JPC_BodyID body,
+                                                               const JPC_VehicleCollisionTester *tester);
+
+/* The following must only be called on vehicle constraints. Functions for one kind of vehicle do nothing (or
+ * return false / 0) for the others. */
+JPC_API JPC_VehicleKind JPC_Vehicle_GetKind(const JPC_Constraint *vehicle);
 JPC_API void JPC_Vehicle_SetCollisionTester(JPC_Constraint *vehicle, const JPC_VehicleCollisionTester *tester);
-/* forward and right in [-1, 1], brake and hand_brake in [0, 1]. */
+/* Wheeled vehicles and motorcycles. forward and right in [-1, 1], brake and hand_brake in [0, 1]. */
 JPC_API void JPC_Vehicle_SetDriverInput(JPC_Constraint *vehicle, float forward, float right, float brake, float hand_brake);
+/* Tracked vehicles. forward in [-1, 1], brake in [0, 1]. The ratios in [-1, 1] scale each track's speed to steer
+ * (e.g. 1 and -1 turn on the spot); ratios closer to 0 than 0.001 are pushed away from it. Returns false for other vehicles. */
+JPC_API bool JPC_Vehicle_SetTrackInput(JPC_Constraint *vehicle, float forward, float left_ratio, float right_ratio, float brake);
+/* Angular velocity of a track's driven wheel (rad/s); side 0 is left, 1 right. Returns false for other vehicles. */
+JPC_API bool JPC_Vehicle_GetTrackAngularVelocity(const JPC_Constraint *vehicle, uint32_t side, float *out_angular_velocity);
+
+/* Motorcycles. Setters return false for other vehicles. */
+JPC_API bool JPC_Motorcycle_SetLeanControllerEnabled(JPC_Constraint *vehicle, bool enabled);
+JPC_API bool JPC_Motorcycle_IsLeanControllerEnabled(const JPC_Constraint *vehicle);
+/* Limits steering so the bike can't turn tighter than its lean angle allows. */
+JPC_API bool JPC_Motorcycle_SetLeanSteeringLimitEnabled(JPC_Constraint *vehicle, bool enabled);
+JPC_API bool JPC_Motorcycle_IsLeanSteeringLimitEnabled(const JPC_Constraint *vehicle);
+JPC_API bool JPC_Motorcycle_SetLeanSpring(JPC_Constraint *vehicle, float spring_constant, float damping, float integration_coefficient,
+                                          float integration_coefficient_decay, float smoothing_factor);
+/* Distance between the front and rear wheel. */
+JPC_API float JPC_Motorcycle_GetWheelBase(const JPC_Constraint *vehicle);
+
 JPC_API uint32_t JPC_Vehicle_GetNumWheels(const JPC_Constraint *vehicle);
 /* Returns false for an out of range wheel. */
 JPC_API bool JPC_Vehicle_GetWheelState(const JPC_Constraint *vehicle, uint32_t wheel, JPC_WheelState *out_state);
@@ -1659,6 +1816,17 @@ JPC_API void JPC_Character_SetUp(JPC_Character *character, JPC_Vec3 up);
 JPC_API void JPC_Character_SetMaxSlopeAngle(JPC_Character *character, float angle);
 JPC_API void JPC_Character_GetGround(const JPC_Character *character, JPC_CharacterGround *out_ground);
 JPC_API bool JPC_Character_IsSupported(const JPC_Character *character);
+
+/* Character snapshots, for rollback alongside JPC_PhysicsSystem_SaveState. A virtual character saves its position,
+ * rotation, velocity, ground state and the contacts it collided with; a rigid character saves its ground state (its
+ * body is in the physics snapshot). User data and materials of the ground and contacts are not saved and read as
+ * 0 / the default material until the next update. Restoring fails (with an error) for a snapshot of another
+ * character or of something else; snapshots made from raw bytes are restored unchecked. Restoring does not move a
+ * virtual character's inner body: restore the physics snapshot too. */
+JPC_API JPC_PhysicsSnapshot *JPC_CharacterVirtual_SaveState(const JPC_CharacterVirtual *character);
+JPC_API bool JPC_CharacterVirtual_RestoreState(JPC_CharacterVirtual *character, const JPC_PhysicsSnapshot *snapshot);
+JPC_API JPC_PhysicsSnapshot *JPC_Character_SaveState(const JPC_Character *character);
+JPC_API bool JPC_Character_RestoreState(JPC_Character *character, const JPC_PhysicsSnapshot *snapshot);
 
 #ifdef __cplusplus
 }

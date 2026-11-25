@@ -225,6 +225,10 @@ pub const JPC_GROUND_STATE_ON_STEEP_GROUND: JPC_GroundState = 1;
 pub const JPC_GROUND_STATE_NOT_SUPPORTED: JPC_GroundState = 2;
 pub const JPC_GROUND_STATE_IN_AIR: JPC_GroundState = 3;
 pub type JPC_GroundState = ::core::ffi::c_uint;
+pub const JPC_VEHICLE_KIND_WHEELED: JPC_VehicleKind = 0;
+pub const JPC_VEHICLE_KIND_MOTORCYCLE: JPC_VehicleKind = 1;
+pub const JPC_VEHICLE_KIND_TRACKED: JPC_VehicleKind = 2;
+pub type JPC_VehicleKind = ::core::ffi::c_uint;
 pub const JPC_MOTOR_STATE_OFF: JPC_MotorState = 0;
 pub const JPC_MOTOR_STATE_VELOCITY: JPC_MotorState = 1;
 pub const JPC_MOTOR_STATE_POSITION: JPC_MotorState = 2;
@@ -531,6 +535,95 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn JPC_Shape_GetMassProperties(shape: *const JPC_Shape) -> JPC_MassProperties;
+}
+unsafe extern "C" {
+    pub fn JPC_MutableCompoundShape_Create(
+        sub_shapes: *const JPC_CompoundSubShape,
+        num_sub_shapes: u32,
+    ) -> *mut JPC_Shape;
+}
+unsafe extern "C" {
+    pub fn JPC_CompoundShape_GetNumSubShapes(shape: *const JPC_Shape) -> u32;
+}
+unsafe extern "C" {
+    pub fn JPC_CompoundShape_GetSubShape(
+        shape: *const JPC_Shape,
+        index: u32,
+        out_sub_shape: *mut JPC_CompoundSubShape,
+    ) -> bool;
+}
+unsafe extern "C" {
+    pub fn JPC_CompoundShape_GetSubShapeIndexFromID(
+        shape: *const JPC_Shape,
+        id: JPC_SubShapeID,
+        out_index: *mut u32,
+        out_remainder: *mut JPC_SubShapeID,
+    ) -> bool;
+}
+unsafe extern "C" {
+    pub fn JPC_MutableCompoundShape_AddShape(
+        shape: *mut JPC_Shape,
+        position: JPC_Vec3,
+        rotation: JPC_Quat,
+        child: *const JPC_Shape,
+        user_data: u32,
+        index: u32,
+    ) -> u32;
+}
+unsafe extern "C" {
+    pub fn JPC_MutableCompoundShape_RemoveShape(shape: *mut JPC_Shape, index: u32) -> bool;
+}
+unsafe extern "C" {
+    pub fn JPC_MutableCompoundShape_ModifyShape(
+        shape: *mut JPC_Shape,
+        index: u32,
+        position: JPC_Vec3,
+        rotation: JPC_Quat,
+        child: *const JPC_Shape,
+    ) -> bool;
+}
+unsafe extern "C" {
+    pub fn JPC_MutableCompoundShape_ModifyShapes(
+        shape: *mut JPC_Shape,
+        start_index: u32,
+        count: u32,
+        positions: *const JPC_Vec3,
+        rotations: *const JPC_Quat,
+    ) -> bool;
+}
+unsafe extern "C" {
+    pub fn JPC_MutableCompoundShape_AdjustCenterOfMass(shape: *mut JPC_Shape) -> bool;
+}
+pub type JPC_MutableCompoundEditFn = ::core::option::Option<
+    unsafe extern "C" fn(user_data: *mut ::core::ffi::c_void, compound: *mut JPC_Shape),
+>;
+unsafe extern "C" {
+    pub fn JPC_BodyInterface_ModifyMutableCompound(
+        bi: *mut JPC_BodyInterface,
+        id: JPC_BodyID,
+        fn_: JPC_MutableCompoundEditFn,
+        user_data: *mut ::core::ffi::c_void,
+        update_mass_properties: bool,
+        activation: JPC_Activation,
+    ) -> bool;
+}
+pub type JPC_WriteFn = ::core::option::Option<
+    unsafe extern "C" fn(
+        user_data: *mut ::core::ffi::c_void,
+        data: *const ::core::ffi::c_void,
+        size: usize,
+    ),
+>;
+unsafe extern "C" {
+    pub fn JPC_Shape_SaveBinary(
+        shape: *const JPC_Shape,
+        write: JPC_WriteFn,
+        user_data: *mut ::core::ffi::c_void,
+    );
+}
+unsafe extern "C" {
+    pub fn JPC_Shape_RestoreBinary(data: *const ::core::ffi::c_void, size: usize)
+    -> *mut JPC_Shape;
 }
 unsafe extern "C" {
     pub fn JPC_PhysicsMaterial_Create(user_data: u64) -> *mut JPC_PhysicsMaterial;
@@ -3644,6 +3737,236 @@ unsafe extern "C" {
         tester: *const JPC_VehicleCollisionTester,
     ) -> *mut JPC_Constraint;
 }
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct JPC_MotorcycleSettings {
+    pub vehicle: JPC_WheeledVehicleSettings,
+    pub max_lean_angle: f32,
+    pub lean_spring_constant: f32,
+    pub lean_spring_damping: f32,
+    pub lean_spring_integration_coefficient: f32,
+    pub lean_spring_integration_coefficient_decay: f32,
+    pub lean_smoothing_factor: f32,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of JPC_MotorcycleSettings"][::core::mem::size_of::<JPC_MotorcycleSettings>() - 232usize];
+    ["Alignment of JPC_MotorcycleSettings"]
+        [::core::mem::align_of::<JPC_MotorcycleSettings>() - 8usize];
+    ["Offset of field: JPC_MotorcycleSettings::vehicle"]
+        [::core::mem::offset_of!(JPC_MotorcycleSettings, vehicle) - 0usize];
+    ["Offset of field: JPC_MotorcycleSettings::max_lean_angle"]
+        [::core::mem::offset_of!(JPC_MotorcycleSettings, max_lean_angle) - 208usize];
+    ["Offset of field: JPC_MotorcycleSettings::lean_spring_constant"]
+        [::core::mem::offset_of!(JPC_MotorcycleSettings, lean_spring_constant) - 212usize];
+    ["Offset of field: JPC_MotorcycleSettings::lean_spring_damping"]
+        [::core::mem::offset_of!(JPC_MotorcycleSettings, lean_spring_damping) - 216usize];
+    ["Offset of field: JPC_MotorcycleSettings::lean_spring_integration_coefficient"][::core::mem::offset_of!(
+        JPC_MotorcycleSettings,
+        lean_spring_integration_coefficient
+    ) - 220usize];
+    ["Offset of field: JPC_MotorcycleSettings::lean_spring_integration_coefficient_decay"][::core::mem::offset_of!(
+        JPC_MotorcycleSettings,
+        lean_spring_integration_coefficient_decay
+    )
+        - 224usize];
+    ["Offset of field: JPC_MotorcycleSettings::lean_smoothing_factor"]
+        [::core::mem::offset_of!(JPC_MotorcycleSettings, lean_smoothing_factor) - 228usize];
+};
+impl Default for JPC_MotorcycleSettings {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+unsafe extern "C" {
+    pub fn JPC_MotorcycleSettings_SetDefault(settings: *mut JPC_MotorcycleSettings);
+}
+unsafe extern "C" {
+    pub fn JPC_PhysicsSystem_CreateMotorcycle(
+        system: *mut JPC_PhysicsSystem,
+        settings: *const JPC_MotorcycleSettings,
+        body: JPC_BodyID,
+        tester: *const JPC_VehicleCollisionTester,
+    ) -> *mut JPC_Constraint;
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct JPC_WheelSettingsTV {
+    pub position: JPC_Vec3,
+    pub suspension_force_point: JPC_Vec3,
+    pub suspension_direction: JPC_Vec3,
+    pub steering_axis: JPC_Vec3,
+    pub wheel_up: JPC_Vec3,
+    pub wheel_forward: JPC_Vec3,
+    pub suspension_min_length: f32,
+    pub suspension_max_length: f32,
+    pub suspension_preload_length: f32,
+    pub suspension_spring: JPC_SpringSettings,
+    pub radius: f32,
+    pub width: f32,
+    pub enable_suspension_force_point: bool,
+    pub longitudinal_friction: f32,
+    pub lateral_friction: f32,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of JPC_WheelSettingsTV"][::core::mem::size_of::<JPC_WheelSettingsTV>() - 116usize];
+    ["Alignment of JPC_WheelSettingsTV"][::core::mem::align_of::<JPC_WheelSettingsTV>() - 4usize];
+    ["Offset of field: JPC_WheelSettingsTV::position"]
+        [::core::mem::offset_of!(JPC_WheelSettingsTV, position) - 0usize];
+    ["Offset of field: JPC_WheelSettingsTV::suspension_force_point"]
+        [::core::mem::offset_of!(JPC_WheelSettingsTV, suspension_force_point) - 12usize];
+    ["Offset of field: JPC_WheelSettingsTV::suspension_direction"]
+        [::core::mem::offset_of!(JPC_WheelSettingsTV, suspension_direction) - 24usize];
+    ["Offset of field: JPC_WheelSettingsTV::steering_axis"]
+        [::core::mem::offset_of!(JPC_WheelSettingsTV, steering_axis) - 36usize];
+    ["Offset of field: JPC_WheelSettingsTV::wheel_up"]
+        [::core::mem::offset_of!(JPC_WheelSettingsTV, wheel_up) - 48usize];
+    ["Offset of field: JPC_WheelSettingsTV::wheel_forward"]
+        [::core::mem::offset_of!(JPC_WheelSettingsTV, wheel_forward) - 60usize];
+    ["Offset of field: JPC_WheelSettingsTV::suspension_min_length"]
+        [::core::mem::offset_of!(JPC_WheelSettingsTV, suspension_min_length) - 72usize];
+    ["Offset of field: JPC_WheelSettingsTV::suspension_max_length"]
+        [::core::mem::offset_of!(JPC_WheelSettingsTV, suspension_max_length) - 76usize];
+    ["Offset of field: JPC_WheelSettingsTV::suspension_preload_length"]
+        [::core::mem::offset_of!(JPC_WheelSettingsTV, suspension_preload_length) - 80usize];
+    ["Offset of field: JPC_WheelSettingsTV::suspension_spring"]
+        [::core::mem::offset_of!(JPC_WheelSettingsTV, suspension_spring) - 84usize];
+    ["Offset of field: JPC_WheelSettingsTV::radius"]
+        [::core::mem::offset_of!(JPC_WheelSettingsTV, radius) - 96usize];
+    ["Offset of field: JPC_WheelSettingsTV::width"]
+        [::core::mem::offset_of!(JPC_WheelSettingsTV, width) - 100usize];
+    ["Offset of field: JPC_WheelSettingsTV::enable_suspension_force_point"]
+        [::core::mem::offset_of!(JPC_WheelSettingsTV, enable_suspension_force_point) - 104usize];
+    ["Offset of field: JPC_WheelSettingsTV::longitudinal_friction"]
+        [::core::mem::offset_of!(JPC_WheelSettingsTV, longitudinal_friction) - 108usize];
+    ["Offset of field: JPC_WheelSettingsTV::lateral_friction"]
+        [::core::mem::offset_of!(JPC_WheelSettingsTV, lateral_friction) - 112usize];
+};
+impl Default for JPC_WheelSettingsTV {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct JPC_VehicleTrackSettings {
+    pub driven_wheel: u32,
+    pub wheels: *const u32,
+    pub num_wheels: u32,
+    pub inertia: f32,
+    pub angular_damping: f32,
+    pub max_brake_torque: f32,
+    pub differential_ratio: f32,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of JPC_VehicleTrackSettings"]
+        [::core::mem::size_of::<JPC_VehicleTrackSettings>() - 40usize];
+    ["Alignment of JPC_VehicleTrackSettings"]
+        [::core::mem::align_of::<JPC_VehicleTrackSettings>() - 8usize];
+    ["Offset of field: JPC_VehicleTrackSettings::driven_wheel"]
+        [::core::mem::offset_of!(JPC_VehicleTrackSettings, driven_wheel) - 0usize];
+    ["Offset of field: JPC_VehicleTrackSettings::wheels"]
+        [::core::mem::offset_of!(JPC_VehicleTrackSettings, wheels) - 8usize];
+    ["Offset of field: JPC_VehicleTrackSettings::num_wheels"]
+        [::core::mem::offset_of!(JPC_VehicleTrackSettings, num_wheels) - 16usize];
+    ["Offset of field: JPC_VehicleTrackSettings::inertia"]
+        [::core::mem::offset_of!(JPC_VehicleTrackSettings, inertia) - 20usize];
+    ["Offset of field: JPC_VehicleTrackSettings::angular_damping"]
+        [::core::mem::offset_of!(JPC_VehicleTrackSettings, angular_damping) - 24usize];
+    ["Offset of field: JPC_VehicleTrackSettings::max_brake_torque"]
+        [::core::mem::offset_of!(JPC_VehicleTrackSettings, max_brake_torque) - 28usize];
+    ["Offset of field: JPC_VehicleTrackSettings::differential_ratio"]
+        [::core::mem::offset_of!(JPC_VehicleTrackSettings, differential_ratio) - 32usize];
+};
+impl Default for JPC_VehicleTrackSettings {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct JPC_TrackedVehicleSettings {
+    pub base: JPC_ConstraintSettings,
+    pub up: JPC_Vec3,
+    pub forward: JPC_Vec3,
+    pub max_pitch_roll_angle: f32,
+    pub wheels: *const JPC_WheelSettingsTV,
+    pub num_wheels: u32,
+    pub anti_roll_bars: *const JPC_VehicleAntiRollBar,
+    pub num_anti_roll_bars: u32,
+    pub engine: JPC_VehicleEngineSettings,
+    pub transmission: JPC_VehicleTransmissionSettings,
+    pub tracks: [JPC_VehicleTrackSettings; 2usize],
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of JPC_TrackedVehicleSettings"]
+        [::core::mem::size_of::<JPC_TrackedVehicleSettings>() - 272usize];
+    ["Alignment of JPC_TrackedVehicleSettings"]
+        [::core::mem::align_of::<JPC_TrackedVehicleSettings>() - 8usize];
+    ["Offset of field: JPC_TrackedVehicleSettings::base"]
+        [::core::mem::offset_of!(JPC_TrackedVehicleSettings, base) - 0usize];
+    ["Offset of field: JPC_TrackedVehicleSettings::up"]
+        [::core::mem::offset_of!(JPC_TrackedVehicleSettings, up) - 24usize];
+    ["Offset of field: JPC_TrackedVehicleSettings::forward"]
+        [::core::mem::offset_of!(JPC_TrackedVehicleSettings, forward) - 36usize];
+    ["Offset of field: JPC_TrackedVehicleSettings::max_pitch_roll_angle"]
+        [::core::mem::offset_of!(JPC_TrackedVehicleSettings, max_pitch_roll_angle) - 48usize];
+    ["Offset of field: JPC_TrackedVehicleSettings::wheels"]
+        [::core::mem::offset_of!(JPC_TrackedVehicleSettings, wheels) - 56usize];
+    ["Offset of field: JPC_TrackedVehicleSettings::num_wheels"]
+        [::core::mem::offset_of!(JPC_TrackedVehicleSettings, num_wheels) - 64usize];
+    ["Offset of field: JPC_TrackedVehicleSettings::anti_roll_bars"]
+        [::core::mem::offset_of!(JPC_TrackedVehicleSettings, anti_roll_bars) - 72usize];
+    ["Offset of field: JPC_TrackedVehicleSettings::num_anti_roll_bars"]
+        [::core::mem::offset_of!(JPC_TrackedVehicleSettings, num_anti_roll_bars) - 80usize];
+    ["Offset of field: JPC_TrackedVehicleSettings::engine"]
+        [::core::mem::offset_of!(JPC_TrackedVehicleSettings, engine) - 88usize];
+    ["Offset of field: JPC_TrackedVehicleSettings::transmission"]
+        [::core::mem::offset_of!(JPC_TrackedVehicleSettings, transmission) - 128usize];
+    ["Offset of field: JPC_TrackedVehicleSettings::tracks"]
+        [::core::mem::offset_of!(JPC_TrackedVehicleSettings, tracks) - 192usize];
+};
+impl Default for JPC_TrackedVehicleSettings {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+unsafe extern "C" {
+    pub fn JPC_WheelSettingsTV_SetDefault(settings: *mut JPC_WheelSettingsTV);
+}
+unsafe extern "C" {
+    pub fn JPC_TrackedVehicleSettings_SetDefault(settings: *mut JPC_TrackedVehicleSettings);
+}
+unsafe extern "C" {
+    pub fn JPC_PhysicsSystem_CreateTrackedVehicle(
+        system: *mut JPC_PhysicsSystem,
+        settings: *const JPC_TrackedVehicleSettings,
+        body: JPC_BodyID,
+        tester: *const JPC_VehicleCollisionTester,
+    ) -> *mut JPC_Constraint;
+}
+unsafe extern "C" {
+    pub fn JPC_Vehicle_GetKind(vehicle: *const JPC_Constraint) -> JPC_VehicleKind;
+}
 unsafe extern "C" {
     pub fn JPC_Vehicle_SetCollisionTester(
         vehicle: *mut JPC_Constraint,
@@ -3658,6 +3981,53 @@ unsafe extern "C" {
         brake: f32,
         hand_brake: f32,
     );
+}
+unsafe extern "C" {
+    pub fn JPC_Vehicle_SetTrackInput(
+        vehicle: *mut JPC_Constraint,
+        forward: f32,
+        left_ratio: f32,
+        right_ratio: f32,
+        brake: f32,
+    ) -> bool;
+}
+unsafe extern "C" {
+    pub fn JPC_Vehicle_GetTrackAngularVelocity(
+        vehicle: *const JPC_Constraint,
+        side: u32,
+        out_angular_velocity: *mut f32,
+    ) -> bool;
+}
+unsafe extern "C" {
+    pub fn JPC_Motorcycle_SetLeanControllerEnabled(
+        vehicle: *mut JPC_Constraint,
+        enabled: bool,
+    ) -> bool;
+}
+unsafe extern "C" {
+    pub fn JPC_Motorcycle_IsLeanControllerEnabled(vehicle: *const JPC_Constraint) -> bool;
+}
+unsafe extern "C" {
+    pub fn JPC_Motorcycle_SetLeanSteeringLimitEnabled(
+        vehicle: *mut JPC_Constraint,
+        enabled: bool,
+    ) -> bool;
+}
+unsafe extern "C" {
+    pub fn JPC_Motorcycle_IsLeanSteeringLimitEnabled(vehicle: *const JPC_Constraint) -> bool;
+}
+unsafe extern "C" {
+    pub fn JPC_Motorcycle_SetLeanSpring(
+        vehicle: *mut JPC_Constraint,
+        spring_constant: f32,
+        damping: f32,
+        integration_coefficient: f32,
+        integration_coefficient_decay: f32,
+        smoothing_factor: f32,
+    ) -> bool;
+}
+unsafe extern "C" {
+    pub fn JPC_Motorcycle_GetWheelBase(vehicle: *const JPC_Constraint) -> f32;
 }
 unsafe extern "C" {
     pub fn JPC_Vehicle_GetNumWheels(vehicle: *const JPC_Constraint) -> u32;
@@ -4890,4 +5260,24 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn JPC_Character_IsSupported(character: *const JPC_Character) -> bool;
+}
+unsafe extern "C" {
+    pub fn JPC_CharacterVirtual_SaveState(
+        character: *const JPC_CharacterVirtual,
+    ) -> *mut JPC_PhysicsSnapshot;
+}
+unsafe extern "C" {
+    pub fn JPC_CharacterVirtual_RestoreState(
+        character: *mut JPC_CharacterVirtual,
+        snapshot: *const JPC_PhysicsSnapshot,
+    ) -> bool;
+}
+unsafe extern "C" {
+    pub fn JPC_Character_SaveState(character: *const JPC_Character) -> *mut JPC_PhysicsSnapshot;
+}
+unsafe extern "C" {
+    pub fn JPC_Character_RestoreState(
+        character: *mut JPC_Character,
+        snapshot: *const JPC_PhysicsSnapshot,
+    ) -> bool;
 }

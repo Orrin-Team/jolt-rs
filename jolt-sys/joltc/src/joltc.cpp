@@ -2015,30 +2015,26 @@ JPC_Shape *JPC_HeightFieldShape_CreateWithMaterials(const float *samples, JPC_Ve
 // Snapshots
 // ---------------------------------------------------------------------------
 
-struct JPC_PhysicsSnapshot
-{
-	JPH_OVERRIDE_NEW_DELETE
-
-	std::string				mData;
-	// Null for snapshots made from raw bytes, which are restored without checks
-	const JPC_PhysicsSystem *mSystem = nullptr;
-	uint64					mStructureVersion = 0;
-};
-
 JPC_PhysicsSnapshot *JPC_PhysicsSystem_SaveState(const JPC_PhysicsSystem *system, JPC_StateParts parts)
 {
 	StateRecorderImpl recorder;
 	system->mSystem.SaveState(recorder, EStateRecorderState(parts & JPC_STATE_PARTS_ALL));
 	JPC_PhysicsSnapshot *snapshot = new JPC_PhysicsSnapshot;
 	snapshot->mData = recorder.GetData();
-	snapshot->mSystem = system;
-	snapshot->mStructureVersion = system->mStructureVersion;
+	snapshot->mKind = JPC_PhysicsSnapshot::EKind::Physics;
+	snapshot->mOwner = system;
+	snapshot->mVersion = system->mStructureVersion;
 	return snapshot;
 }
 
 bool JPC_PhysicsSystem_RestoreState(JPC_PhysicsSystem *system, const JPC_PhysicsSnapshot *snapshot)
 {
-	if (snapshot->mSystem != nullptr && (snapshot->mSystem != system || snapshot->mStructureVersion != system->mStructureVersion))
+	if (snapshot->mKind != JPC_PhysicsSnapshot::EKind::Raw && snapshot->mKind != JPC_PhysicsSnapshot::EKind::Physics)
+	{
+		JPC_SetError("Snapshot is of a character, not a physics system");
+		return false;
+	}
+	if (snapshot->mKind == JPC_PhysicsSnapshot::EKind::Physics && (snapshot->mOwner != system || snapshot->mVersion != system->mStructureVersion))
 	{
 		JPC_SetError("Snapshot was taken from a different system, or bodies, shapes or constraints changed since");
 		return false;

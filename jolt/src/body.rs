@@ -1,9 +1,12 @@
+use std::ffi::c_void;
 use std::fmt;
 use std::marker::PhantomData;
+use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
+use std::ptr::NonNull;
 
 use jolt_sys as sys;
 
-use crate::{AABox, CollisionGroup, Error, Mat44, MassProperties, ObjectLayer, PhysicsSystem, Quat, Result, Shape, Vec3};
+use crate::{AABox, CollisionGroup, Error, Mat44, MassProperties, MutableCompound, ObjectLayer, PhysicsSystem, Quat, Result, Shape, Vec3};
 
 /// Identifies a body. Ids of destroyed bodies are never reused for a different body
 /// (they carry a sequence number), so a stale id simply stops matching anything.
@@ -400,6 +403,68 @@ impl<'a> BodyInterface<'a> {
 
     pub fn set_shape(&self, id: BodyId, shape: &Shape, update_mass_properties: bool, activation: Activation) {
         unsafe { sys::JPC_BodyInterface_SetShape(self.raw, id.0, shape.as_raw(), update_mass_properties, activation.to_sys()) }
+    }
+
+    /// Edits the [mutable compound](Shape::mutable_compound) shape of a body in place, then updates the body's
+    /// bounds and center of mass (the body stays where it is) and, with `update_mass_properties`, its mass and
+    /// inertia (kept as they were if the shape has no mass left). If the shape is also held elsewhere (another body,
+    /// a [`Shape`] handle, settings you kept around) the body first gets its own copy, so they never see the change.
+    ///
+    /// `edit` runs with the body locked: using this body interface from inside it deadlocks. Fails if the body
+    /// does not exist or its shape is not a mutable compound.
+    ///
+    /// ```
+    /// # use jolt::*;
+    /// # fn demo(bodies: &BodyInterface<'_>, ship: BodyId, hull: &Shape) -> Result<()> {
+    /// let new_part = CompoundSubShape::new(Vec3::new(0.0, 1.0, 0.0), Quat::IDENTITY, hull.clone());
+    /// bodies.modify_mutable_compound(ship, true, Activation::Activate, |compound| {
+    ///     compound.push(&new_part)?;
+    ///     compound.adjust_center_of_mass();
+    ///     Ok::<_, Error>(())
+    /// })??;
+    /// # Ok(()) }
+    /// ```
+    pub fn modify_mutable_compound<R, F: FnOnce(&mut MutableCompound<'_>) -> R>(
+        &self,
+        id: BodyId,
+        update_mass_properties: bool,
+        activation: Activation,
+        edit: F,
+    ) -> Result<R> {
+        struct Context<F, R> {
+            edit: Option<F>,
+            result: Option<std::thread::Result<R>>,
+        }
+
+        unsafe extern "C" fn trampoline<F: FnOnce(&mut MutableCompound<'_>) -> R, R>(user_data: *mut c_void, compound: *mut sys::JPC_Shape) {
+            // SAFETY: user_data is the Context below, and the compound is the body's own, locked, for this call.
+            let context = unsafe { &mut *user_data.cast::<Context<F, R>>() };
+            let mut editor = unsafe { MutableCompound::from_raw(NonNull::new_unchecked(compound)) };
+            if let Some(edit) = context.edit.take() {
+                // A panic must not unwind into C++; it is resumed once the body is unlocked.
+                context.result = Some(catch_unwind(AssertUnwindSafe(|| edit(&mut editor))));
+            }
+        }
+
+        let mut context: Context<F, R> = Context { edit: Some(edit), result: None };
+        let ok = unsafe {
+            sys::JPC_BodyInterface_ModifyMutableCompound(
+                self.raw,
+                id.0,
+                Some(trampoline::<F, R>),
+                (&mut context as *mut Context<F, R>).cast(),
+                update_mass_properties,
+                activation.to_sys(),
+            )
+        };
+        if !ok {
+            return Err(Error::last());
+        }
+        match context.result {
+            Some(Ok(value)) => Ok(value),
+            Some(Err(payload)) => resume_unwind(payload),
+            None => Err(Error::new("mutable compound edit did not run")),
+        }
     }
 
     pub fn object_layer(&self, id: BodyId) -> ObjectLayer {

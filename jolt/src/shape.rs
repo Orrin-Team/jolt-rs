@@ -1,4 +1,6 @@
+use std::ffi::c_void;
 use std::fmt;
+use std::marker::PhantomData;
 use std::ptr::NonNull;
 
 use jolt_sys as sys;
@@ -13,8 +15,8 @@ pub struct Shape {
     raw: NonNull<sys::JPC_Shape>,
 }
 
-// SAFETY: Jolt shapes are immutable after creation (the only mutators here require unique ownership)
-// and their reference count is atomic.
+// SAFETY: Jolt shapes are immutable after creation (the only mutators here require unique ownership, or edit a
+// body's private copy under the body's write lock) and their reference count is atomic.
 unsafe impl Send for Shape {}
 unsafe impl Sync for Shape {}
 
@@ -71,7 +73,7 @@ impl From<MassProperties> for sys::JPC_MassProperties {
     }
 }
 
-/// A child of a [`Shape::static_compound`].
+/// A child of a [`Shape::static_compound`] or [`Shape::mutable_compound`].
 #[derive(Clone, Debug)]
 pub struct CompoundSubShape {
     pub position: Vec3,
@@ -248,17 +250,20 @@ impl Shape {
 
     pub fn static_compound(sub_shapes: &[CompoundSubShape]) -> Result<Self> {
         crate::ensure_init();
-        let subs: Vec<sys::JPC_CompoundSubShape> = sub_shapes
-            .iter()
-            .map(|s| sys::JPC_CompoundSubShape {
-                position: s.position.into(),
-                rotation: s.rotation.into(),
-                shape: s.shape.as_raw(),
-                user_data: s.user_data,
-            })
-            .collect();
+        let subs = sys_sub_shapes(sub_shapes);
         let count = u32::try_from(subs.len()).map_err(|_| Error::new("too many sub shapes"))?;
         Self::from_raw_or_error(unsafe { sys::JPC_StaticCompoundShape_Create(subs.as_ptr(), count) })
+    }
+
+    /// A compound whose children can be added, removed and moved later: with [`edit_mutable_compound`](Self::edit_mutable_compound)
+    /// while this is the only handle, or with [`BodyInterface::modify_mutable_compound`](crate::BodyInterface::modify_mutable_compound)
+    /// once a body uses it. Static compounds are faster to query; use this one for things that change, like a ship
+    /// being built or a destructible object.
+    pub fn mutable_compound(sub_shapes: &[CompoundSubShape]) -> Result<Self> {
+        crate::ensure_init();
+        let subs = sys_sub_shapes(sub_shapes);
+        let count = u32::try_from(subs.len()).map_err(|_| Error::new("too many sub shapes"))?;
+        Self::from_raw_or_error(unsafe { sys::JPC_MutableCompoundShape_Create(subs.as_ptr(), count) })
     }
 
     pub fn rotated_translated(position: Vec3, rotation: Quat, inner: &Shape) -> Result<Self> {
@@ -396,6 +401,196 @@ impl Shape {
         self.ensure_unique()?;
         unsafe { sys::JPC_Shape_SetUserData(self.raw.as_ptr(), user_data) };
         Ok(())
+    }
+
+    /// Number of children of a static or mutable compound, 0 for any other shape.
+    pub fn sub_shape_count(&self) -> usize {
+        unsafe { sys::JPC_CompoundShape_GetNumSubShapes(self.as_raw()) as usize }
+    }
+
+    /// A child of a static or mutable compound, placed as it was when added or last moved.
+    pub fn sub_shape(&self, index: usize) -> Option<CompoundSubShape> {
+        sub_shape(self.as_raw(), index)
+    }
+
+    /// All children of a static or mutable compound; empty for any other shape.
+    pub fn sub_shapes(&self) -> Vec<CompoundSubShape> {
+        (0..self.sub_shape_count()).filter_map(|i| self.sub_shape(i)).collect()
+    }
+
+    /// Splits a sub shape id from a hit on this compound into the index of the child that was hit and the id
+    /// within that child. `None` if this is not a compound or the id names no child.
+    pub fn compound_child(&self, sub_shape_id: SubShapeId) -> Option<(usize, SubShapeId)> {
+        let (mut index, mut remainder) = (0u32, 0u32);
+        unsafe { sys::JPC_CompoundShape_GetSubShapeIndexFromID(self.as_raw(), sub_shape_id.0, &mut index, &mut remainder) }
+            .then_some((index as usize, SubShapeId(remainder)))
+    }
+
+    /// Edits a [`mutable_compound`](Self::mutable_compound) in place. Fails if the shape is another kind or is
+    /// shared with another handle or body; to edit the shape of a body use
+    /// [`BodyInterface::modify_mutable_compound`](crate::BodyInterface::modify_mutable_compound).
+    pub fn edit_mutable_compound(&mut self) -> Result<MutableCompound<'_>> {
+        self.ensure_unique()?;
+        if self.sub_type() != ShapeSubType::MutableCompound {
+            return Err(Error::new("shape is not a mutable compound"));
+        }
+        Ok(MutableCompound { raw: self.raw, _shape: PhantomData })
+    }
+
+    /// Saves the shape and all its children in Jolt's binary format, e.g. to bake meshes or compounds at build
+    /// time. Children used more than once are stored once. Materials are saved by user data.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        unsafe extern "C" fn append(user_data: *mut c_void, data: *const c_void, size: usize) {
+            // SAFETY: user_data is the Vec below and data points at size readable bytes.
+            unsafe { (*user_data.cast::<Vec<u8>>()).extend_from_slice(std::slice::from_raw_parts(data.cast::<u8>(), size)) };
+        }
+        let mut bytes = Vec::new();
+        unsafe { sys::JPC_Shape_SaveBinary(self.as_raw(), Some(append), (&mut bytes as *mut Vec<u8>).cast()) };
+        bytes
+    }
+
+    /// Loads a shape saved with [`to_bytes`](Self::to_bytes). Materials come back as new [`PhysicsMaterial`]s with
+    /// the saved user data (one per distinct material). Data from another Jolt version, unknown shape types and
+    /// truncated data are rejected.
+    ///
+    /// # Safety
+    /// Jolt trusts the contents beyond that: the bytes must come from `to_bytes` of this library, with the same
+    /// Jolt version, on a platform with the same endianness. Corrupted or untrusted data is undefined behaviour.
+    pub unsafe fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        crate::ensure_init();
+        Self::from_raw_or_error(unsafe { sys::JPC_Shape_RestoreBinary(bytes.as_ptr().cast(), bytes.len()) })
+    }
+}
+
+fn sys_sub_shapes(sub_shapes: &[CompoundSubShape]) -> Vec<sys::JPC_CompoundSubShape> {
+    sub_shapes
+        .iter()
+        .map(|s| sys::JPC_CompoundSubShape {
+            position: s.position.into(),
+            rotation: s.rotation.into(),
+            shape: s.shape.as_raw(),
+            user_data: s.user_data,
+        })
+        .collect()
+}
+
+fn sub_shape(raw: *const sys::JPC_Shape, index: usize) -> Option<CompoundSubShape> {
+    let index = u32::try_from(index).ok()?;
+    let mut out = sys::JPC_CompoundSubShape::default();
+    if !unsafe { sys::JPC_CompoundShape_GetSubShape(raw, index, &mut out) } {
+        return None;
+    }
+    // SAFETY: GetSubShape hands out a new reference to the child.
+    let shape = unsafe { Shape::from_raw(NonNull::new(out.shape.cast_mut())?) };
+    Some(CompoundSubShape { position: out.position.into(), rotation: out.rotation.into(), shape, user_data: out.user_data })
+}
+
+/// Edits the children of a mutable compound, from [`Shape::edit_mutable_compound`] or
+/// [`BodyInterface::modify_mutable_compound`](crate::BodyInterface::modify_mutable_compound).
+///
+/// Child positions are where each child's origin sits in the compound. Editing changes what sub shape ids from
+/// earlier hits refer to.
+pub struct MutableCompound<'a> {
+    raw: NonNull<sys::JPC_Shape>,
+    _shape: PhantomData<&'a mut Shape>,
+}
+
+impl MutableCompound<'_> {
+    /// # Safety
+    /// `raw` must be a mutable compound that nothing else uses for `'a`.
+    pub(crate) unsafe fn from_raw<'a>(raw: NonNull<sys::JPC_Shape>) -> MutableCompound<'a> {
+        MutableCompound { raw, _shape: PhantomData }
+    }
+
+    fn ptr(&self) -> *mut sys::JPC_Shape {
+        self.raw.as_ptr()
+    }
+
+    fn check(ok: bool) -> Result<()> {
+        if ok { Ok(()) } else { Err(Error::last()) }
+    }
+
+    pub fn len(&self) -> usize {
+        unsafe { sys::JPC_CompoundShape_GetNumSubShapes(self.ptr()) as usize }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    pub fn sub_shape(&self, index: usize) -> Option<CompoundSubShape> {
+        sub_shape(self.ptr(), index)
+    }
+
+    /// Appends a child and returns its index.
+    pub fn push(&mut self, sub_shape: &CompoundSubShape) -> Result<usize> {
+        self.add(u32::MAX, sub_shape)
+    }
+
+    /// Inserts a child before `index` (`index == len()` appends), shifting the later children up.
+    pub fn insert(&mut self, index: usize, sub_shape: &CompoundSubShape) -> Result<usize> {
+        if index > self.len() {
+            return Err(Error::new("sub shape index out of range"));
+        }
+        self.add(index as u32, sub_shape)
+    }
+
+    fn add(&mut self, index: u32, s: &CompoundSubShape) -> Result<usize> {
+        let added = unsafe {
+            sys::JPC_MutableCompoundShape_AddShape(self.ptr(), s.position.into(), s.rotation.into(), s.shape.as_raw(), s.user_data, index)
+        };
+        if added == u32::MAX { Err(Error::last()) } else { Ok(added as usize) }
+    }
+
+    /// Removes a child, shifting the later children down.
+    pub fn remove(&mut self, index: usize) -> Result<()> {
+        let index = u32::try_from(index).map_err(|_| Error::new("sub shape index out of range"))?;
+        Self::check(unsafe { sys::JPC_MutableCompoundShape_RemoveShape(self.ptr(), index) })
+    }
+
+    /// Moves a child.
+    pub fn set_transform(&mut self, index: usize, position: Vec3, rotation: Quat) -> Result<()> {
+        let index = u32::try_from(index).map_err(|_| Error::new("sub shape index out of range"))?;
+        Self::check(unsafe {
+            sys::JPC_MutableCompoundShape_ModifyShape(self.ptr(), index, position.into(), rotation.into(), std::ptr::null())
+        })
+    }
+
+    /// Moves a child and swaps its shape (keeping its user data).
+    pub fn replace(&mut self, index: usize, position: Vec3, rotation: Quat, shape: &Shape) -> Result<()> {
+        let index = u32::try_from(index).map_err(|_| Error::new("sub shape index out of range"))?;
+        Self::check(unsafe { sys::JPC_MutableCompoundShape_ModifyShape(self.ptr(), index, position.into(), rotation.into(), shape.as_raw()) })
+    }
+
+    /// Moves the children from `start` on to `transforms`, faster than one at a time.
+    pub fn set_transforms(&mut self, start: usize, transforms: &[(Vec3, Quat)]) -> Result<()> {
+        let start = u32::try_from(start).map_err(|_| Error::new("sub shape index out of range"))?;
+        let count = u32::try_from(transforms.len()).map_err(|_| Error::new("sub shape index out of range"))?;
+        let positions: Vec<sys::JPC_Vec3> = transforms.iter().map(|t| t.0.into()).collect();
+        let rotations: Vec<sys::JPC_Quat> = transforms.iter().map(|t| t.1.into()).collect();
+        Self::check(unsafe {
+            sys::JPC_MutableCompoundShape_ModifyShapes(self.ptr(), start, count, positions.as_ptr(), rotations.as_ptr())
+        })
+    }
+
+    /// Moves the compound's center of mass to that of its children. Call it after changes that shift the mass, so
+    /// the body rotates around the right point; child positions don't change.
+    pub fn adjust_center_of_mass(&mut self) {
+        unsafe { sys::JPC_MutableCompoundShape_AdjustCenterOfMass(self.ptr()) };
+    }
+
+    pub fn center_of_mass(&self) -> Vec3 {
+        unsafe { sys::JPC_Shape_GetCenterOfMass(self.ptr()) }.into()
+    }
+
+    pub fn local_bounds(&self) -> AABox {
+        unsafe { sys::JPC_Shape_GetLocalBounds(self.ptr()) }.into()
+    }
+}
+
+impl fmt::Debug for MutableCompound<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MutableCompound").field("len", &self.len()).finish()
     }
 }
 

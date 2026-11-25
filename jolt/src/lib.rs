@@ -77,8 +77,9 @@ pub use listener::{
 };
 pub use material::PhysicsMaterial;
 pub use vehicle::{
-    AntiRollBar, TransmissionMode, VehicleCollisionTester, VehicleDifferentialSettings, VehicleEngineSettings, VehicleMut,
-    VehicleTransmissionSettings, WheelSettings, WheelState, WheeledVehicleSettings,
+    AntiRollBar, MotorcycleSettings, TrackSide, TrackedVehicleSettings, TrackedWheelSettings, TransmissionMode, VehicleCollisionTester,
+    VehicleDifferentialSettings, VehicleEngineSettings, VehicleKind, VehicleMut, VehicleTrackSettings, VehicleTransmissionSettings,
+    WheelSettings, WheelState, WheeledVehicleSettings,
 };
 pub use math::{AABox, Mat44, Quat, Vec3};
 pub use query::{
@@ -86,7 +87,7 @@ pub use query::{
     ShapeHit,
 };
 pub use ragdoll::{JointState, Ragdoll, RagdollConstraint, RagdollJoint, RagdollOptions, RagdollPart, RagdollSettings, Skeleton, SkeletonBuilder};
-pub use shape::{CompoundSubShape, DEFAULT_CONVEX_RADIUS, MassProperties, Shape, ShapeSubType, ShapeType};
+pub use shape::{CompoundSubShape, DEFAULT_CONVEX_RADIUS, MassProperties, MutableCompound, Shape, ShapeSubType, ShapeType};
 pub use snapshot::{PhysicsSnapshot, StateParts};
 pub use system::{JobSystem, PhysicsSettings, PhysicsSystem, PhysicsSystemSettings, TempAllocator, UpdateError};
 
