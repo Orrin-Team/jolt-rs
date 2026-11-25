@@ -137,7 +137,6 @@ pub struct PhysicsSettings {
     /// Seconds a body must be still before it sleeps.
     pub time_before_sleep: f32,
     pub point_velocity_sleep_threshold: f32,
-    pub deterministic_simulation: bool,
     pub constraint_warm_start: bool,
     pub use_body_pair_contact_cache: bool,
     pub use_manifold_reduction: bool,
@@ -168,7 +167,6 @@ impl PhysicsSettings {
             min_velocity_for_restitution: r.min_velocity_for_restitution,
             time_before_sleep: r.time_before_sleep,
             point_velocity_sleep_threshold: r.point_velocity_sleep_threshold,
-            deterministic_simulation: r.deterministic_simulation,
             constraint_warm_start: r.constraint_warm_start,
             use_body_pair_contact_cache: r.use_body_pair_contact_cache,
             use_manifold_reduction: r.use_manifold_reduction,
@@ -199,7 +197,6 @@ impl PhysicsSettings {
             min_velocity_for_restitution: self.min_velocity_for_restitution,
             time_before_sleep: self.time_before_sleep,
             point_velocity_sleep_threshold: self.point_velocity_sleep_threshold,
-            deterministic_simulation: self.deterministic_simulation,
             constraint_warm_start: self.constraint_warm_start,
             use_body_pair_contact_cache: self.use_body_pair_contact_cache,
             use_manifold_reduction: self.use_manifold_reduction,

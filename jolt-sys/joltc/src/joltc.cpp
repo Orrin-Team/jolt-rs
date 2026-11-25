@@ -380,7 +380,6 @@ void JPC_PhysicsSystem_GetPhysicsSettings(const JPC_PhysicsSystem *system, JPC_P
 	out->min_velocity_for_restitution = s.mMinVelocityForRestitution;
 	out->time_before_sleep = s.mTimeBeforeSleep;
 	out->point_velocity_sleep_threshold = s.mPointVelocitySleepThreshold;
-	out->deterministic_simulation = s.mDeterministicSimulation;
 	out->constraint_warm_start = s.mConstraintWarmStart;
 	out->use_body_pair_contact_cache = s.mUseBodyPairContactCache;
 	out->use_manifold_reduction = s.mUseManifoldReduction;
@@ -429,7 +428,6 @@ bool JPC_PhysicsSystem_SetPhysicsSettings(JPC_PhysicsSystem *system, const JPC_P
 	s.mMinVelocityForRestitution = in->min_velocity_for_restitution;
 	s.mTimeBeforeSleep = in->time_before_sleep;
 	s.mPointVelocitySleepThreshold = in->point_velocity_sleep_threshold;
-	s.mDeterministicSimulation = in->deterministic_simulation;
 	s.mConstraintWarmStart = in->constraint_warm_start;
 	s.mUseBodyPairContactCache = in->use_body_pair_contact_cache;
 	s.mUseManifoldReduction = in->use_manifold_reduction;

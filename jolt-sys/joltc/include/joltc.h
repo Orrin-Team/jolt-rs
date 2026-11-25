@@ -380,9 +380,10 @@ JPC_API uint32_t JPC_MutableCompoundShape_AddShape(JPC_Shape *shape, JPC_Vec3 po
 JPC_API bool JPC_MutableCompoundShape_RemoveShape(JPC_Shape *shape, uint32_t index);
 /* child may be NULL to keep the current child. */
 JPC_API bool JPC_MutableCompoundShape_ModifyShape(JPC_Shape *shape, uint32_t index, JPC_Vec3 position, JPC_Quat rotation, const JPC_Shape *child);
-/* Moves count children starting at start_index, faster than one at a time. */
+/* Moves count children starting at start_index, faster than one at a time. shapes may be NULL to keep the children,
+ * or hold count shapes to swap them in too. */
 JPC_API bool JPC_MutableCompoundShape_ModifyShapes(JPC_Shape *shape, uint32_t start_index, uint32_t count, const JPC_Vec3 *positions,
-                                                   const JPC_Quat *rotations);
+                                                   const JPC_Quat *rotations, const JPC_Shape *const *shapes);
 /* Moves the compound's center of mass to the children's combined center of mass. Child positions are unchanged; a
  * body edited through JPC_BodyInterface_ModifyMutableCompound keeps its world position. */
 JPC_API bool JPC_MutableCompoundShape_AdjustCenterOfMass(JPC_Shape *shape);
@@ -508,7 +509,6 @@ typedef struct JPC_PhysicsSettings {
     float min_velocity_for_restitution;
     float time_before_sleep;
     float point_velocity_sleep_threshold;
-    bool deterministic_simulation;
     bool constraint_warm_start;
     bool use_body_pair_contact_cache;
     bool use_manifold_reduction;

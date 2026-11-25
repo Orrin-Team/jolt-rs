@@ -88,6 +88,10 @@ fn mutable_compound_edits_in_place() {
         assert!(edit.set_transform(3, Vec3::ZERO, Quat::IDENTITY).is_err());
         edit.set_transforms(1, &[(Vec3::new(2.0, 0.0, 0.0), Quat::IDENTITY)]).unwrap();
         assert!(edit.set_transforms(1, &[(Vec3::ZERO, Quat::IDENTITY); 3]).is_err());
+        let capsule = Shape::capsule(0.5, 0.2).unwrap();
+        edit.replace_many(1, &[(Vec3::new(2.0, 0.0, 0.0), Quat::IDENTITY, &capsule)]).unwrap();
+        assert_eq!(edit.sub_shape(1).unwrap().shape.sub_type(), ShapeSubType::Capsule);
+        assert!(edit.replace_many(2, &[(Vec3::ZERO, Quat::IDENTITY, &capsule); 2]).is_err());
 
         let before = edit.sub_shape(0).unwrap().position;
         edit.adjust_center_of_mass();
@@ -206,6 +210,7 @@ fn mutable_compound_rejects_hierarchies_too_deep_for_sub_shape_ids() {
     let err = edit.push(&CompoundSubShape::new(Vec3::ZERO, Quat::IDENTITY, wide.clone())).unwrap_err();
     assert!(err.message().contains("sub shape ID bits"), "{err}");
     assert!(edit.replace(0, Vec3::ZERO, Quat::IDENTITY, &wide).is_err());
+    assert!(edit.replace_many(0, &[(Vec3::ZERO, Quat::IDENTITY, &wide)]).is_err());
     assert_eq!(edit.len(), (1 << 16) + 1);
     assert_eq!(edit.sub_shape(0).unwrap().shape.sub_type(), ShapeSubType::Sphere);
 }

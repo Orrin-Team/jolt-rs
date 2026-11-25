@@ -165,13 +165,22 @@ bool JPC_MutableCompoundShape_ModifyShape(JPC_Shape *shape, uint32_t index, JPC_
 	return true;
 }
 
-bool JPC_MutableCompoundShape_ModifyShapes(JPC_Shape *shape, uint32_t start_index, uint32_t count, const JPC_Vec3 *positions, const JPC_Quat *rotations)
+bool JPC_MutableCompoundShape_ModifyShapes(JPC_Shape *shape, uint32_t start_index, uint32_t count, const JPC_Vec3 *positions, const JPC_Quat *rotations,
+										   const JPC_Shape *const *shapes)
 {
 	MutableCompoundShape *c = AsMutableCompound(shape);
 	if (c == nullptr || !CheckIndex(c, uint64(start_index) + count))
 		return false;
 	if (count == 0)
 		return true;
+	if (shapes != nullptr)
+		for (uint32_t i = 0; i < count; ++i)
+			if (shapes[i] == nullptr || shapes[i] == shape)
+			{
+				JPC_SetError(shapes[i] == nullptr ? "Inner shape is null" : "A compound cannot contain itself");
+				return false;
+			}
+
 	// The C structs are not padded like Jolt's SIMD types, so convert first
 	Array<Vec3> p;
 	Array<Quat> r;
@@ -182,7 +191,33 @@ bool JPC_MutableCompoundShape_ModifyShapes(JPC_Shape *shape, uint32_t start_inde
 		p.push_back(ToJph(positions[i]));
 		r.push_back(ToJph(rotations[i]));
 	}
-	c->ModifyShapes(start_index, count, p.data(), r.data());
+	if (shapes == nullptr)
+	{
+		c->ModifyShapes(start_index, count, p.data(), r.data());
+		return true;
+	}
+
+	// Keep the old children so the change can be undone if the new shapes don't fit
+	Array<Vec3> old_p;
+	Array<Quat> old_r;
+	Array<RefConst<Shape>> old_shapes;
+	Array<const Shape *> old_ptrs, new_ptrs;
+	for (uint32_t i = 0; i < count; ++i)
+	{
+		const CompoundShape::SubShape &sub = c->GetSubShape(start_index + i);
+		Quat rotation = sub.GetRotation();
+		old_r.push_back(rotation);
+		old_p.push_back(sub.GetPositionCOM() + c->GetCenterOfMass() - rotation * sub.mShape->GetCenterOfMass());
+		old_shapes.push_back(sub.mShape);
+		old_ptrs.push_back(sub.mShape.GetPtr());
+		new_ptrs.push_back(ToJph(shapes[i]));
+	}
+	c->ModifyShapes(start_index, count, p.data(), r.data(), new_ptrs.data());
+	if (!FitsSubShapeIDBits(c))
+	{
+		c->ModifyShapes(start_index, count, old_p.data(), old_r.data(), old_ptrs.data());
+		return false;
+	}
 	return true;
 }
 

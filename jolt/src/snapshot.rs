@@ -29,7 +29,7 @@ impl std::ops::BitOr for StateParts {
 }
 
 /// A saved simulation state, for rollback netcode, replays or undo. Restoring all parts onto the same world
-/// reproduces the simulation exactly (with `deterministic_simulation` on, which is the default).
+/// reproduces the simulation exactly.
 ///
 /// Characters are not included: save them separately with
 /// [`CharacterVirtual::save_state`](crate::CharacterVirtual::save_state) and

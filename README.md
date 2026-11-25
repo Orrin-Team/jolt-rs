@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/Orrin-Team/jolt-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/Orrin-Team/jolt-rs/actions/workflows/ci.yml)
 
-Rust bindings to [Jolt Physics](https://github.com/jrouwe/JoltPhysics) 5.6.0, built on **joltc**, a C API over Jolt.
+Rust bindings to [Jolt Physics](https://github.com/jrouwe/JoltPhysics) 5.7.0 (plus upstream fixes up to `78f09c1c`, including a job system hang), built on **joltc**, a C API over Jolt.
 
 | Path | |
 |---|---|

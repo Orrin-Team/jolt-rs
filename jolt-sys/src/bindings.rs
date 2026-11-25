@@ -612,6 +612,7 @@ unsafe extern "C" {
         count: u32,
         positions: *const JPC_Vec3,
         rotations: *const JPC_Quat,
+        shapes: *const *const JPC_Shape,
     ) -> bool;
 }
 unsafe extern "C" {
@@ -827,7 +828,6 @@ pub struct JPC_PhysicsSettings {
     pub min_velocity_for_restitution: f32,
     pub time_before_sleep: f32,
     pub point_velocity_sleep_threshold: f32,
-    pub deterministic_simulation: bool,
     pub constraint_warm_start: bool,
     pub use_body_pair_contact_cache: bool,
     pub use_manifold_reduction: bool,
@@ -887,20 +887,18 @@ const _: () = {
         [::core::mem::offset_of!(JPC_PhysicsSettings, time_before_sleep) - 68usize];
     ["Offset of field: JPC_PhysicsSettings::point_velocity_sleep_threshold"]
         [::core::mem::offset_of!(JPC_PhysicsSettings, point_velocity_sleep_threshold) - 72usize];
-    ["Offset of field: JPC_PhysicsSettings::deterministic_simulation"]
-        [::core::mem::offset_of!(JPC_PhysicsSettings, deterministic_simulation) - 76usize];
     ["Offset of field: JPC_PhysicsSettings::constraint_warm_start"]
-        [::core::mem::offset_of!(JPC_PhysicsSettings, constraint_warm_start) - 77usize];
+        [::core::mem::offset_of!(JPC_PhysicsSettings, constraint_warm_start) - 76usize];
     ["Offset of field: JPC_PhysicsSettings::use_body_pair_contact_cache"]
-        [::core::mem::offset_of!(JPC_PhysicsSettings, use_body_pair_contact_cache) - 78usize];
+        [::core::mem::offset_of!(JPC_PhysicsSettings, use_body_pair_contact_cache) - 77usize];
     ["Offset of field: JPC_PhysicsSettings::use_manifold_reduction"]
-        [::core::mem::offset_of!(JPC_PhysicsSettings, use_manifold_reduction) - 79usize];
+        [::core::mem::offset_of!(JPC_PhysicsSettings, use_manifold_reduction) - 78usize];
     ["Offset of field: JPC_PhysicsSettings::use_large_island_splitter"]
-        [::core::mem::offset_of!(JPC_PhysicsSettings, use_large_island_splitter) - 80usize];
+        [::core::mem::offset_of!(JPC_PhysicsSettings, use_large_island_splitter) - 79usize];
     ["Offset of field: JPC_PhysicsSettings::allow_sleeping"]
-        [::core::mem::offset_of!(JPC_PhysicsSettings, allow_sleeping) - 81usize];
+        [::core::mem::offset_of!(JPC_PhysicsSettings, allow_sleeping) - 80usize];
     ["Offset of field: JPC_PhysicsSettings::check_active_edges"]
-        [::core::mem::offset_of!(JPC_PhysicsSettings, check_active_edges) - 82usize];
+        [::core::mem::offset_of!(JPC_PhysicsSettings, check_active_edges) - 81usize];
 };
 unsafe extern "C" {
     pub fn JPC_PhysicsSystem_Create(

@@ -576,7 +576,19 @@ impl MutableCompound<'_> {
         let positions: Vec<sys::JPC_Vec3> = transforms.iter().map(|t| t.0.into()).collect();
         let rotations: Vec<sys::JPC_Quat> = transforms.iter().map(|t| t.1.into()).collect();
         Self::check(unsafe {
-            sys::JPC_MutableCompoundShape_ModifyShapes(self.ptr(), start, count, positions.as_ptr(), rotations.as_ptr())
+            sys::JPC_MutableCompoundShape_ModifyShapes(self.ptr(), start, count, positions.as_ptr(), rotations.as_ptr(), std::ptr::null())
+        })
+    }
+
+    /// Moves the children from `start` on and swaps their shapes (keeping their user data), faster than one at a time.
+    pub fn replace_many(&mut self, start: usize, children: &[(Vec3, Quat, &Shape)]) -> Result<()> {
+        let start = u32::try_from(start).map_err(|_| Error::new("sub shape index out of range"))?;
+        let count = u32::try_from(children.len()).map_err(|_| Error::new("sub shape index out of range"))?;
+        let positions: Vec<sys::JPC_Vec3> = children.iter().map(|c| c.0.into()).collect();
+        let rotations: Vec<sys::JPC_Quat> = children.iter().map(|c| c.1.into()).collect();
+        let shapes: Vec<*const sys::JPC_Shape> = children.iter().map(|c| c.2.as_raw()).collect();
+        Self::check(unsafe {
+            sys::JPC_MutableCompoundShape_ModifyShapes(self.ptr(), start, count, positions.as_ptr(), rotations.as_ptr(), shapes.as_ptr())
         })
     }
 
