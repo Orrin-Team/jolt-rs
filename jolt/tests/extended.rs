@@ -46,8 +46,8 @@ impl World {
     }
 }
 
-fn close(a: Vec3, b: Vec3, tolerance: f32) -> bool {
-    (a - b).length() < tolerance
+fn close(a: impl Into<RVec3>, b: impl Into<RVec3>, tolerance: Real) -> bool {
+    (a.into() - b.into()).length() < tolerance
 }
 
 fn unit_box() -> Shape {
@@ -539,7 +539,7 @@ fn tracked_vehicle_drives_and_turns_on_the_spot() {
     let turned = heading(&world) - heading_before;
     let after = world.system.body_interface().position(body);
     assert!(turned.abs() > 0.3, "tank should turn: {turned}");
-    assert!(close(Vec3::new(after.x, 0.0, after.z), Vec3::new(before.x, 0.0, before.z), 1.5), "turning on the spot: {before:?} -> {after:?}");
+    assert!(close(RVec3::new(after.x, 0.0, after.z), RVec3::new(before.x, 0.0, before.z), 1.5), "turning on the spot: {before:?} -> {after:?}");
 }
 
 #[test]

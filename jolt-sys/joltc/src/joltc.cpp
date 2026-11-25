@@ -34,6 +34,12 @@ void JPC_SetError(const char *inMessage) { sLastError = inMessage; }
 
 const char *JPC_GetLastError(void) { return sLastError.c_str(); }
 
+#ifdef JPC_DOUBLE_PRECISION
+bool JPC_IsDoublePrecision(void) { return true; }
+#else
+bool JPC_IsDoublePrecision(void) { return false; }
+#endif
+
 static JPC_TraceFn sTraceHandler = nullptr;
 static JPC_AssertFailedFn sAssertHandler = nullptr;
 
@@ -1102,14 +1108,16 @@ private:
 	void *					mUserData;
 };
 
-JPC_ShapeHit MakeShapeHit(const TransformedShape *inContext, const CollideShapeResult &inResult, float inFraction, bool inBackFace)
+// Jolt reports contact points and faces relative to the base offset the query was given (the query shape's position, so
+// they stay precise far from the origin in double precision builds)
+JPC_ShapeHit MakeShapeHit(const TransformedShape *inContext, const CollideShapeResult &inResult, RVec3Arg inBaseOffset, float inFraction, bool inBackFace)
 {
 	JPC_ShapeHit hit;
 	hit.body_id = ToC(inResult.mBodyID2);
 	hit.sub_shape_id1 = ToC(inResult.mSubShapeID1);
 	hit.sub_shape_id2 = ToC(inResult.mSubShapeID2);
-	hit.contact_point_on1 = ToC(inResult.mContactPointOn1);
-	hit.contact_point_on2 = ToC(inResult.mContactPointOn2);
+	hit.contact_point_on1 = ToC(inBaseOffset + inResult.mContactPointOn1);
+	hit.contact_point_on2 = ToC(inBaseOffset + inResult.mContactPointOn2);
 	hit.penetration_axis = ToC(inResult.mPenetrationAxis);
 	hit.penetration_depth = inResult.mPenetrationDepth;
 	hit.fraction = inFraction;
@@ -1125,17 +1133,17 @@ JPC_ShapeHit MakeShapeHit(const TransformedShape *inContext, const CollideShapeR
 // Converted faces for one hit; must outlive the collector callback
 struct HitFaces
 {
-	JPC_Vec3				mFace1[CollideShapeResult::Face::Capacity];
-	JPC_Vec3				mFace2[CollideShapeResult::Face::Capacity];
+	JPC_RVec3				mFace1[CollideShapeResult::Face::Capacity];
+	JPC_RVec3				mFace2[CollideShapeResult::Face::Capacity];
 
-	void					Fill(const CollideShapeResult &inResult, JPC_ShapeHit &ioHit)
+	void					Fill(const CollideShapeResult &inResult, RVec3Arg inBaseOffset, JPC_ShapeHit &ioHit)
 	{
 		if (inResult.mShape1Face.empty() && inResult.mShape2Face.empty())
 			return;
 		for (uint i = 0; i < inResult.mShape1Face.size(); ++i)
-			mFace1[i] = ToC(inResult.mShape1Face[i]);
+			mFace1[i] = ToC(inBaseOffset + inResult.mShape1Face[i]);
 		for (uint i = 0; i < inResult.mShape2Face.size(); ++i)
-			mFace2[i] = ToC(inResult.mShape2Face[i]);
+			mFace2[i] = ToC(inBaseOffset + inResult.mShape2Face[i]);
 		ioHit.face1 = mFace1;
 		ioHit.num_face1 = uint32_t(inResult.mShape1Face.size());
 		ioHit.face2 = mFace2;
@@ -1146,13 +1154,13 @@ struct HitFaces
 class CallbackCollideShapeCollector final : public CollideShapeCollector
 {
 public:
-	CallbackCollideShapeCollector(JPC_ShapeCollectorFn inFn, void *inUserData) : mFn(inFn), mUserData(inUserData) { }
+	CallbackCollideShapeCollector(JPC_ShapeCollectorFn inFn, void *inUserData, RVec3Arg inBaseOffset) : mFn(inFn), mUserData(inUserData), mBaseOffset(inBaseOffset) { }
 
 	virtual void			AddHit(const CollideShapeResult &inResult) override
 	{
-		JPC_ShapeHit hit = MakeShapeHit(GetContext(), inResult, 0.0f, false);
+		JPC_ShapeHit hit = MakeShapeHit(GetContext(), inResult, mBaseOffset, 0.0f, false);
 		HitFaces faces;
-		faces.Fill(inResult, hit);
+		faces.Fill(inResult, mBaseOffset, hit);
 		if (!mFn(mUserData, &hit))
 			ForceEarlyOut();
 	}
@@ -1160,18 +1168,19 @@ public:
 private:
 	JPC_ShapeCollectorFn	mFn;
 	void *					mUserData;
+	RVec3					mBaseOffset;
 };
 
 class CallbackCastShapeCollector final : public CastShapeCollector
 {
 public:
-	CallbackCastShapeCollector(JPC_ShapeCollectorFn inFn, void *inUserData) : mFn(inFn), mUserData(inUserData) { }
+	CallbackCastShapeCollector(JPC_ShapeCollectorFn inFn, void *inUserData, RVec3Arg inBaseOffset) : mFn(inFn), mUserData(inUserData), mBaseOffset(inBaseOffset) { }
 
 	virtual void			AddHit(const ShapeCastResult &inResult) override
 	{
-		JPC_ShapeHit hit = MakeShapeHit(GetContext(), inResult, inResult.mFraction, inResult.mIsBackFaceHit);
+		JPC_ShapeHit hit = MakeShapeHit(GetContext(), inResult, mBaseOffset, inResult.mFraction, inResult.mIsBackFaceHit);
 		HitFaces faces;
-		faces.Fill(inResult, hit);
+		faces.Fill(inResult, mBaseOffset, hit);
 		if (!mFn(mUserData, &hit))
 			ForceEarlyOut();
 	}
@@ -1179,6 +1188,7 @@ public:
 private:
 	JPC_ShapeCollectorFn	mFn;
 	void *					mUserData;
+	RVec3					mBaseOffset;
 };
 
 } // namespace
@@ -1227,8 +1237,9 @@ void JPC_PhysicsSystem_CollideShape(const JPC_PhysicsSystem *system, const JPC_S
 	CollideShapeSettings settings;
 	settings.mMaxSeparationDistance = max_separation_distance;
 	QueryFilters filters(*system, filter);
-	CallbackCollideShapeCollector collector(collector_fn, user_data);
-	system->mSystem.GetNarrowPhaseQuery().CollideShape(ToJph(shape), ToJph(scale), ToJph(*transform), settings, RVec3::sZero(), collector,
+	RMat44 com_transform = ToJph(*transform);
+	CallbackCollideShapeCollector collector(collector_fn, user_data, com_transform.GetTranslation());
+	system->mSystem.GetNarrowPhaseQuery().CollideShape(ToJph(shape), ToJph(scale), com_transform, settings, com_transform.GetTranslation(), collector,
 													   filters.mBroadPhase, filters.mObjectLayer, filters.mBody);
 }
 
@@ -1238,8 +1249,8 @@ void JPC_PhysicsSystem_CastShape(const JPC_PhysicsSystem *system, const JPC_Shap
 	RShapeCast cast(ToJph(shape), ToJph(scale), ToJph(*transform), ToJph(direction));
 	ShapeCastSettings settings;
 	QueryFilters filters(*system, filter);
-	CallbackCastShapeCollector collector(collector_fn, user_data);
-	system->mSystem.GetNarrowPhaseQuery().CastShape(cast, settings, RVec3::sZero(), collector, filters.mBroadPhase, filters.mObjectLayer, filters.mBody);
+	CallbackCastShapeCollector collector(collector_fn, user_data, cast.mCenterOfMassStart.GetTranslation());
+	system->mSystem.GetNarrowPhaseQuery().CastShape(cast, settings, cast.mCenterOfMassStart.GetTranslation(), collector, filters.mBroadPhase, filters.mObjectLayer, filters.mBody);
 }
 
 // ---------------------------------------------------------------------------
@@ -1961,8 +1972,9 @@ void JPC_PhysicsSystem_CollideShapeWithSettings(const JPC_PhysicsSystem *system,
 		settings.mCollectFacesMode = in->collect_faces ? ECollectFacesMode::CollectFaces : ECollectFacesMode::NoFaces;
 	}
 	QueryFilters filters(*system, filter);
-	CallbackCollideShapeCollector collector(collector_fn, user_data);
-	system->mSystem.GetNarrowPhaseQuery().CollideShape(ToJph(shape), ToJph(scale), ToJph(*transform), settings, RVec3::sZero(), collector,
+	RMat44 com_transform = ToJph(*transform);
+	CallbackCollideShapeCollector collector(collector_fn, user_data, com_transform.GetTranslation());
+	system->mSystem.GetNarrowPhaseQuery().CollideShape(ToJph(shape), ToJph(scale), com_transform, settings, com_transform.GetTranslation(), collector,
 													   filters.mBroadPhase, filters.mObjectLayer, filters.mBody);
 }
 
@@ -1984,8 +1996,8 @@ void JPC_PhysicsSystem_CastShapeWithSettings(const JPC_PhysicsSystem *system, co
 		settings.mCollectFacesMode = in->collect_faces ? ECollectFacesMode::CollectFaces : ECollectFacesMode::NoFaces;
 	}
 	QueryFilters filters(*system, filter);
-	CallbackCastShapeCollector collector(collector_fn, user_data);
-	system->mSystem.GetNarrowPhaseQuery().CastShape(cast, settings, RVec3::sZero(), collector, filters.mBroadPhase, filters.mObjectLayer, filters.mBody);
+	CallbackCastShapeCollector collector(collector_fn, user_data, cast.mCenterOfMassStart.GetTranslation());
+	system->mSystem.GetNarrowPhaseQuery().CastShape(cast, settings, cast.mCenterOfMassStart.GetTranslation(), collector, filters.mBroadPhase, filters.mObjectLayer, filters.mBody);
 }
 
 // ---------------------------------------------------------------------------
@@ -2065,9 +2077,10 @@ void JPC_Shape_CollideShape(const JPC_Shape *shape, JPC_RVec3 position_com, JPC_
 							JPC_ShapeCollectorFn collector_fn, void *user_data)
 {
 	TransformedShape ts = MakeTransformedShape(shape, position_com, rotation, scale);
-	CallbackCollideShapeCollector collector(collector_fn, user_data);
+	RMat44 com_transform = ToJph(*query_transform);
+	CallbackCollideShapeCollector collector(collector_fn, user_data, com_transform.GetTranslation());
 	collector.SetContext(&ts);
-	ts.CollideShape(ToJph(query_shape), ToJph(query_shape)->MakeScaleValid(ToJph(query_scale)), ToJph(*query_transform), ToJph(settings), RVec3::sZero(), collector);
+	ts.CollideShape(ToJph(query_shape), ToJph(query_shape)->MakeScaleValid(ToJph(query_scale)), com_transform, ToJph(settings), com_transform.GetTranslation(), collector);
 }
 
 void JPC_Shape_CastShape(const JPC_Shape *shape, JPC_RVec3 position_com, JPC_Quat rotation, JPC_Vec3 scale, const JPC_Shape *query_shape,
@@ -2076,9 +2089,9 @@ void JPC_Shape_CastShape(const JPC_Shape *shape, JPC_RVec3 position_com, JPC_Qua
 {
 	TransformedShape ts = MakeTransformedShape(shape, position_com, rotation, scale);
 	RShapeCast cast(ToJph(query_shape), ToJph(query_shape)->MakeScaleValid(ToJph(query_scale)), ToJph(*query_transform), ToJph(direction));
-	CallbackCastShapeCollector collector(collector_fn, user_data);
+	CallbackCastShapeCollector collector(collector_fn, user_data, cast.mCenterOfMassStart.GetTranslation());
 	collector.SetContext(&ts);
-	ts.CastShape(cast, ToJph(settings), RVec3::sZero(), collector);
+	ts.CastShape(cast, ToJph(settings), cast.mCenterOfMassStart.GetTranslation(), collector);
 }
 
 // ---------------------------------------------------------------------------

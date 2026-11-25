@@ -184,7 +184,7 @@ fn m3_collectors_may_use_the_body_interface() {
 
     let probe = Shape::sphere(5.0).unwrap();
     let mut seen = 0;
-    system.collide_shape(&probe, Vec3::ONE, &Mat44::IDENTITY, 0.0, &QueryFilter::new(), |hit| {
+    system.collide_shape(&probe, Vec3::ONE, &RMat44::IDENTITY, 0.0, &QueryFilter::new(), |hit| {
         bi.set_friction(hit.body_id, 0.9);
         seen += 1;
         ControlFlow::Break(())

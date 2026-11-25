@@ -19,10 +19,11 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use jolt_sys as sys;
 
 use crate::listener::PanicSlot;
+use crate::math::rvec3;
 use crate::system::SystemInner;
 use crate::{
-    Activation, AllowedDofs, BackFaceMode, Body, BodyId, Error, Mat44, MotionType, ObjectLayer, PhysicsMaterial, PhysicsSnapshot,
-    PhysicsSystem, QueryFilter, Quat, Result, Shape, SubShapeId, TempAllocator, Vec3,
+    Activation, AllowedDofs, BackFaceMode, Body, BodyId, Error, MotionType, ObjectLayer, PhysicsMaterial, PhysicsSnapshot, PhysicsSystem,
+    QueryFilter, Quat, RMat44, RVec3, Result, Shape, SubShapeId, TempAllocator, Vec3,
 };
 
 /// Identifies a [`CharacterVirtual`].
@@ -61,7 +62,7 @@ impl GroundState {
 #[derive(Clone, Debug, PartialEq)]
 pub struct CharacterGround {
     pub state: GroundState,
-    pub position: Vec3,
+    pub position: RVec3,
     pub normal: Vec3,
     /// Velocity of the ground at the contact point, e.g. of a moving platform.
     pub velocity: Vec3,
@@ -98,7 +99,7 @@ pub struct CharacterContact {
     /// Set when the contact is with another character.
     pub character_id: Option<CharacterId>,
     pub sub_shape_id: SubShapeId,
-    pub position: Vec3,
+    pub position: RVec3,
     /// Velocity of the contact point.
     pub linear_velocity: Vec3,
     /// Points towards the character.
@@ -312,7 +313,7 @@ impl CharacterView {
         CharacterId(unsafe { sys::JPC_CharacterVirtual_GetID(self.raw()) })
     }
 
-    pub fn position(&self) -> Vec3 {
+    pub fn position(&self) -> RVec3 {
         unsafe { sys::JPC_CharacterVirtual_GetPosition(self.raw()) }.into()
     }
 
@@ -324,11 +325,11 @@ impl CharacterView {
         unsafe { sys::JPC_CharacterVirtual_GetLinearVelocity(self.raw()) }.into()
     }
 
-    pub fn center_of_mass_position(&self) -> Vec3 {
+    pub fn center_of_mass_position(&self) -> RVec3 {
         unsafe { sys::JPC_CharacterVirtual_GetCenterOfMassPosition(self.raw()) }.into()
     }
 
-    pub fn world_transform(&self) -> Mat44 {
+    pub fn world_transform(&self) -> RMat44 {
         unsafe { sys::JPC_CharacterVirtual_GetWorldTransform(self.raw()) }.into()
     }
 
@@ -532,7 +533,7 @@ impl CharacterVirtual {
         settings: &CharacterVirtualSettings,
         shape: &Shape,
         inner_body_shape: Option<&Shape>,
-        position: Vec3,
+        position: impl Into<RVec3>,
         rotation: Quat,
         user_data: u64,
     ) -> Result<Self> {
@@ -564,7 +565,7 @@ impl CharacterVirtual {
             inner_body_layer: s.inner_body_layer.0,
         };
         let raw = unsafe {
-            sys::JPC_CharacterVirtual_Create(&raw_settings, position.into(), rotation.into(), user_data, system.inner.raw())
+            sys::JPC_CharacterVirtual_Create(&raw_settings, rvec3(position), rotation.into(), user_data, system.inner.raw())
         };
         let raw = NonNull::new(raw).ok_or_else(Error::last)?;
         Ok(Self { raw, system: system.inner.clone(), listener: None, group: None })
@@ -718,8 +719,9 @@ impl CharacterVirtual {
     }
 
     /// Teleports the character (and its inner body).
-    pub fn set_position(&mut self, system: &PhysicsSystem, position: Vec3) {
-        self.world_op(system, |c| unsafe { sys::JPC_CharacterVirtual_SetPosition(c, position.into()) });
+    pub fn set_position(&mut self, system: &PhysicsSystem, position: impl Into<RVec3>) {
+        let position = rvec3(position);
+        self.world_op(system, |c| unsafe { sys::JPC_CharacterVirtual_SetPosition(c, position) });
     }
 
     pub fn set_rotation(&mut self, system: &PhysicsSystem, rotation: Quat) {
@@ -1024,7 +1026,7 @@ unsafe impl Sync for Character {}
 
 impl Character {
     /// Creates the character's body. It is not in the world until [`add_to_physics_system`](Self::add_to_physics_system).
-    pub fn new(system: &PhysicsSystem, settings: &CharacterSettings, shape: &Shape, position: Vec3, rotation: Quat, user_data: u64) -> Result<Self> {
+    pub fn new(system: &PhysicsSystem, settings: &CharacterSettings, shape: &Shape, position: impl Into<RVec3>, rotation: Quat, user_data: u64) -> Result<Self> {
         let s = settings;
         let raw_settings = sys::JPC_CharacterSettings {
             up: s.up.into(),
@@ -1039,7 +1041,7 @@ impl Character {
             gravity_factor: s.gravity_factor,
             allowed_dofs: s.allowed_dofs.bits() as sys::JPC_AllowedDOFs,
         };
-        let raw = unsafe { sys::JPC_Character_Create(&raw_settings, position.into(), rotation.into(), user_data, system.inner.raw()) };
+        let raw = unsafe { sys::JPC_Character_Create(&raw_settings, rvec3(position), rotation.into(), user_data, system.inner.raw()) };
         Ok(Self { raw: NonNull::new(raw).ok_or_else(Error::last)?, system: system.inner.clone() })
     }
 
@@ -1091,12 +1093,12 @@ impl Character {
         unsafe { sys::JPC_Character_AddImpulse(self.check(system), impulse.into()) }
     }
 
-    pub fn position(&self, system: &PhysicsSystem) -> Vec3 {
+    pub fn position(&self, system: &PhysicsSystem) -> RVec3 {
         unsafe { sys::JPC_Character_GetPosition(self.check(system)) }.into()
     }
 
-    pub fn set_position(&self, system: &PhysicsSystem, position: Vec3, activation: Activation) {
-        unsafe { sys::JPC_Character_SetPosition(self.check(system), position.into(), activation.to_sys()) }
+    pub fn set_position(&self, system: &PhysicsSystem, position: impl Into<RVec3>, activation: Activation) {
+        unsafe { sys::JPC_Character_SetPosition(self.check(system), rvec3(position), activation.to_sys()) }
     }
 
     pub fn rotation(&self, system: &PhysicsSystem) -> Quat {
@@ -1107,11 +1109,11 @@ impl Character {
         unsafe { sys::JPC_Character_SetRotation(self.check(system), rotation.into(), activation.to_sys()) }
     }
 
-    pub fn center_of_mass_position(&self, system: &PhysicsSystem) -> Vec3 {
+    pub fn center_of_mass_position(&self, system: &PhysicsSystem) -> RVec3 {
         unsafe { sys::JPC_Character_GetCenterOfMassPosition(self.check(system)) }.into()
     }
 
-    pub fn world_transform(&self, system: &PhysicsSystem) -> Mat44 {
+    pub fn world_transform(&self, system: &PhysicsSystem) -> RMat44 {
         unsafe { sys::JPC_Character_GetWorldTransform(self.check(system)) }.into()
     }
 

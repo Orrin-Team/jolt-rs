@@ -42,9 +42,20 @@ typedef struct JPC_Quat { float x, y, z, w; } JPC_Quat;
 typedef struct JPC_Mat44 { JPC_Vec4 columns[4]; } JPC_Mat44;
 typedef struct JPC_AABox { JPC_Vec3 min, max; } JPC_AABox;
 
-/* World space positions. Single precision builds only for now. */
+/* Double precision vectors and transforms, for world space in double precision builds. */
+typedef struct JPC_DVec3 { double x, y, z; } JPC_DVec3;
+/* The rotation (and scale) columns in single precision, the translation in double precision. */
+typedef struct JPC_DMat44 { JPC_Vec4 columns[3]; JPC_DVec3 translation; } JPC_DMat44;
+
+/* World space positions and transforms. Double precision when joltc (and Jolt) are built with JPC_DOUBLE_PRECISION
+ * defined (CMake option DOUBLE_PRECISION), which then must be defined wherever this header is included. */
+#ifdef JPC_DOUBLE_PRECISION
+typedef JPC_DVec3 JPC_RVec3;
+typedef JPC_DMat44 JPC_RMat44;
+#else
 typedef JPC_Vec3 JPC_RVec3;
 typedef JPC_Mat44 JPC_RMat44;
+#endif
 
 typedef struct JPC_MassProperties {
     float mass;
@@ -285,6 +296,9 @@ JPC_API void JPC_Shutdown(void);
 
 JPC_API void JPC_SetTraceHandler(JPC_TraceFn handler);
 JPC_API void JPC_SetAssertFailedHandler(JPC_AssertFailedFn handler);
+
+/* Whether this build uses double precision world space types; must match JPC_DOUBLE_PRECISION of the includer. */
+JPC_API bool JPC_IsDoublePrecision(void);
 
 /* Message from the last failing call on this thread, or "" if none. */
 JPC_API const char *JPC_GetLastError(void);
@@ -1021,7 +1035,8 @@ JPC_API bool JPC_BodyInterface_IsSoftBody(const JPC_BodyInterface *bi, JPC_BodyI
 JPC_API JPC_SoftBodySharedSettings *JPC_BodyInterface_GetSoftBodySharedSettings(const JPC_BodyInterface *bi, JPC_BodyID id);
 
 typedef struct JPC_SoftBodyVertexState {
-    JPC_Vec3 position;
+    /* World space or relative to the body's center of mass transform, see below. */
+    JPC_RVec3 position;
     JPC_Vec3 velocity;
     float inv_mass;
 } JPC_SoftBodyVertexState;
@@ -1059,10 +1074,10 @@ typedef struct JPC_SoftBodyRodState {
  * and returns the total number of rods (0 for anything that is not a soft body). */
 JPC_API uint32_t JPC_BodyInterface_GetSoftBodyRods(const JPC_BodyInterface *bi, JPC_BodyID id, uint32_t first, JPC_SoftBodyRodState *out_rods, uint32_t capacity);
 
-/* Skins the body's skinned vertices with num_joints world space joint matrices, e.g. from an animated skeleton. Call it before every update that should follow the animation.
+/* Skins the body's skinned vertices with num_joints world space joint transforms, e.g. from an animated skeleton. Call it before every update that should follow the animation.
  * hard_skin_all teleports every skinned vertex to its skinned position (e.g. after a teleport). Returns false for
  * anything that is not a soft body, a body without skinned vertices, or fewer joints than the skinning refers to. */
-JPC_API bool JPC_BodyInterface_SkinSoftBody(JPC_BodyInterface *bi, JPC_BodyID id, const JPC_Mat44 *joint_matrices, uint32_t num_joints, bool hard_skin_all,
+JPC_API bool JPC_BodyInterface_SkinSoftBody(JPC_BodyInterface *bi, JPC_BodyID id, const JPC_RMat44 *joint_matrices, uint32_t num_joints, bool hard_skin_all,
                                             JPC_TempAllocator *temp_allocator);
 /* Turns the max distance / back stop limits of skinned vertices on or off (on by default). With them off, only hard
  * skinned vertices (max_distance 0) follow the skin. */
@@ -1252,9 +1267,9 @@ typedef struct JPC_ShapeHit {
     const JPC_PhysicsMaterial *material;
     /* With collect_faces set in the query settings: the touching faces of the query shape (1) and the hit shape (2),
      * in world space, up to 32 points each. Only valid during the collector callback; NULL and 0 otherwise. */
-    const JPC_Vec3 *face1;
+    const JPC_RVec3 *face1;
     uint32_t num_face1;
-    const JPC_Vec3 *face2;
+    const JPC_RVec3 *face2;
     uint32_t num_face2;
 } JPC_ShapeHit;
 
@@ -1417,7 +1432,7 @@ JPC_API void JPC_BodyInterface_ActivateBodiesInAABox(JPC_BodyInterface *bi, cons
 /* ------------------------------------------------------------------------- */
 
 /* Return false to stop. vertices holds 3 * count positions; materials count entries (NULL for the default material). */
-typedef bool (*JPC_TriangleCollectorFn)(void *user_data, const JPC_Vec3 *vertices, const JPC_PhysicsMaterial *const *materials, uint32_t count);
+typedef bool (*JPC_TriangleCollectorFn)(void *user_data, const JPC_RVec3 *vertices, const JPC_PhysicsMaterial *const *materials, uint32_t count);
 
 /* Triangulates the shape (convex shapes approximately) placed with its center of mass at position_com, optionally only
  * the part inside box. For rendering, navigation meshes and the like. */

@@ -6,7 +6,8 @@ use std::sync::Mutex;
 
 use jolt_sys as sys;
 
-use crate::{Activation, Body, BodyId, MotionType, PhysicsMaterial, Quat, SubShapeId, Vec3};
+use crate::math::rvec3;
+use crate::{Activation, Body, BodyId, MotionType, PhysicsMaterial, Quat, RVec3, SubShapeId, Vec3};
 
 /// Holds the first panic raised inside a callback that C++ called, so it can be resumed on the Rust side.
 #[derive(Default)]
@@ -68,7 +69,8 @@ pub struct CollideShapeResult {
 /// The contact points between two bodies.
 #[derive(Clone, Debug)]
 pub struct ContactManifold<'a> {
-    pub base_offset: Vec3,
+    /// World space.
+    pub base_offset: RVec3,
     /// Direction to move body 2 out of collision.
     pub world_space_normal: Vec3,
     pub penetration_depth: f32,
@@ -84,11 +86,11 @@ pub struct ContactManifold<'a> {
 }
 
 impl ContactManifold<'_> {
-    pub fn world_point_on1(&self, index: usize) -> Vec3 {
+    pub fn world_point_on1(&self, index: usize) -> RVec3 {
         self.base_offset + self.relative_points_on1[index]
     }
 
-    pub fn world_point_on2(&self, index: usize) -> Vec3 {
+    pub fn world_point_on2(&self, index: usize) -> RVec3 {
         self.base_offset + self.relative_points_on2[index]
     }
 }
@@ -136,7 +138,7 @@ pub struct SubShapeIdPair {
 /// thread-safe. A panic inside a callback is caught and resumed when `update` returns.
 pub trait ContactListener: Send + Sync + 'static {
     /// Called before a contact is created; can reject it. Expensive work here slows down the simulation.
-    fn on_contact_validate(&self, body1: &Body, body2: &Body, base_offset: Vec3, result: &CollideShapeResult) -> ValidateResult {
+    fn on_contact_validate(&self, body1: &Body, body2: &Body, base_offset: RVec3, result: &CollideShapeResult) -> ValidateResult {
         let _ = (body1, body2, base_offset, result);
         ValidateResult::AcceptAllContactsForThisBodyPair
     }
@@ -176,7 +178,7 @@ pub struct SoftBodyVertexContact {
     pub vertex: u32,
     pub body: BodyId,
     /// World space.
-    pub contact_point: Vec3,
+    pub contact_point: RVec3,
     pub contact_normal: Vec3,
 }
 
@@ -333,7 +335,7 @@ unsafe extern "C" fn on_contact_validate(
     user_data: *mut c_void,
     body1: *const sys::JPC_Body,
     body2: *const sys::JPC_Body,
-    base_offset: *const sys::JPC_Vec3,
+    base_offset: *const sys::JPC_RVec3,
     result: *const sys::JPC_CollideShapeResult,
 ) -> sys::JPC_ValidateResult {
     let holder = unsafe { &*user_data.cast::<ContactListenerHolder>() };
@@ -433,7 +435,7 @@ pub struct StepBodies<'a> {
 }
 
 impl StepBodies<'_> {
-    pub fn position(&self, id: BodyId) -> Vec3 {
+    pub fn position(&self, id: BodyId) -> RVec3 {
         unsafe { sys::JPC_BodyInterface_GetPosition(self.raw, id.0) }.into()
     }
 
@@ -441,7 +443,7 @@ impl StepBodies<'_> {
         unsafe { sys::JPC_BodyInterface_GetRotation(self.raw, id.0) }.into()
     }
 
-    pub fn center_of_mass_position(&self, id: BodyId) -> Vec3 {
+    pub fn center_of_mass_position(&self, id: BodyId) -> RVec3 {
         unsafe { sys::JPC_BodyInterface_GetCenterOfMassPosition(self.raw, id.0) }.into()
     }
 
@@ -465,8 +467,8 @@ impl StepBodies<'_> {
         unsafe { sys::JPC_BodyInterface_AddForce(self.raw, id.0, force.into(), Activation::Activate.to_sys()) }
     }
 
-    pub fn add_force_at_point(&self, id: BodyId, force: Vec3, point: Vec3) {
-        unsafe { sys::JPC_BodyInterface_AddForceAtPoint(self.raw, id.0, force.into(), point.into(), Activation::Activate.to_sys()) }
+    pub fn add_force_at_point(&self, id: BodyId, force: Vec3, point: impl Into<RVec3>) {
+        unsafe { sys::JPC_BodyInterface_AddForceAtPoint(self.raw, id.0, force.into(), rvec3(point), Activation::Activate.to_sys()) }
     }
 
     pub fn add_torque(&self, id: BodyId, torque: Vec3) {

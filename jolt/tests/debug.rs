@@ -22,13 +22,13 @@ fn add(system: &PhysicsSystem, shape: Shape, position: Vec3, motion: MotionType,
 
 #[derive(Default)]
 struct Recorder {
-    lines: Vec<(Vec3, Vec3)>,
-    triangles: Vec<[Vec3; 3]>,
+    lines: Vec<(RVec3, RVec3)>,
+    triangles: Vec<[RVec3; 3]>,
     texts: Vec<String>,
 }
 
 impl Recorder {
-    fn points(&self) -> impl Iterator<Item = Vec3> + '_ {
+    fn points(&self) -> impl Iterator<Item = RVec3> + '_ {
         self.lines.iter().flat_map(|l| [l.0, l.1]).chain(self.triangles.iter().flatten().copied())
     }
 
@@ -38,15 +38,15 @@ impl Recorder {
 }
 
 impl DebugDraw for Recorder {
-    fn draw_line(&mut self, from: Vec3, to: Vec3, _color: Color) {
+    fn draw_line(&mut self, from: RVec3, to: RVec3, _color: Color) {
         self.lines.push((from, to));
     }
 
-    fn draw_triangle(&mut self, v1: Vec3, v2: Vec3, v3: Vec3, _color: Color, _cast_shadow: bool) {
+    fn draw_triangle(&mut self, v1: RVec3, v2: RVec3, v3: RVec3, _color: Color, _cast_shadow: bool) {
         self.triangles.push([v1, v2, v3]);
     }
 
-    fn draw_text(&mut self, _position: Vec3, text: &str, _color: Color, _height: f32) {
+    fn draw_text(&mut self, _position: RVec3, text: &str, _color: Color, _height: f32) {
         self.texts.push(text.to_owned());
     }
 }
@@ -80,7 +80,7 @@ fn debug_renderer_draws_bodies_constraints_and_skeletons() {
     let settings = BodyDrawSettings { draw_bounding_box: true, draw_soft_body_vertices: true, ..Default::default() };
     system.draw_bodies(&mut renderer, &settings, &mut all, None);
     assert!(!all.is_empty());
-    let xs: Vec<f32> = all.points().map(|p| p.x).collect();
+    let xs: Vec<Real> = all.points().map(|p| p.x).collect();
     assert!(xs.iter().any(|&x| x > 19.0) && xs.iter().any(|&x| x < -19.0), "every body is drawn");
 
     // The filter limits drawing to the bodies it accepts.
@@ -108,7 +108,7 @@ fn debug_renderer_draws_bodies_constraints_and_skeletons() {
     // A panic while drawing comes out after Jolt is done.
     struct Panics;
     impl DebugDraw for Panics {
-        fn draw_line(&mut self, _: Vec3, _: Vec3, _: Color) {
+        fn draw_line(&mut self, _: RVec3, _: RVec3, _: Color) {
             panic!("boom");
         }
     }

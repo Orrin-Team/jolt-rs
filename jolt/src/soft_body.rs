@@ -34,7 +34,9 @@ use std::ptr::NonNull;
 
 use jolt_sys as sys;
 
-use crate::{Activation, BodyId, BodyInterface, CollisionGroup, Error, Mat44, ObjectLayer, PhysicsMaterial, Quat, Result, TempAllocator, Vec3};
+use crate::{
+    Activation, BodyId, BodyInterface, CollisionGroup, Error, Mat44, ObjectLayer, PhysicsMaterial, Quat, RMat44, RVec3, Result, TempAllocator, Vec3,
+};
 
 /// A particle as it is created.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -472,7 +474,7 @@ impl fmt::Debug for SoftBodySharedSettings {
 #[derive(Clone, Debug, PartialEq)]
 pub struct SoftBodyCreationSettings {
     pub settings: SoftBodySharedSettings,
-    pub position: Vec3,
+    pub position: RVec3,
     pub rotation: Quat,
     pub user_data: u64,
     pub object_layer: ObjectLayer,
@@ -498,12 +500,12 @@ pub struct SoftBodyCreationSettings {
 }
 
 impl SoftBodyCreationSettings {
-    pub fn new(settings: SoftBodySharedSettings, position: Vec3, rotation: Quat, object_layer: ObjectLayer) -> Self {
+    pub fn new(settings: SoftBodySharedSettings, position: impl Into<RVec3>, rotation: Quat, object_layer: ObjectLayer) -> Self {
         let mut d = sys::JPC_SoftBodyCreationSettings::default();
         unsafe { sys::JPC_SoftBodyCreationSettings_SetDefault(&mut d) };
         Self {
             settings,
-            position,
+            position: position.into(),
             rotation,
             user_data: d.user_data,
             object_layer,
@@ -550,7 +552,8 @@ impl SoftBodyCreationSettings {
 /// A particle of a live soft body.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct SoftBodyVertexState {
-    pub position: Vec3,
+    /// World space or relative to the body's center of mass transform, depending on how it was read or is written.
+    pub position: RVec3,
     pub velocity: Vec3,
     /// 0 for pinned vertices.
     pub inv_mass: f32,
@@ -658,8 +661,8 @@ impl BodyInterface<'_> {
     /// before every update that should follow the animation, and before the first update. `hard_skin_all` teleports
     /// every skinned vertex to the skin. Fails for anything that is not a soft body with skinned vertices, or for
     /// fewer joints than [`SoftBodyCounts::skin_joints`].
-    pub fn skin_soft_body(&self, id: BodyId, joint_matrices: &[Mat44], hard_skin_all: bool, temp: &mut TempAllocator) -> Result<()> {
-        let joints: Vec<sys::JPC_Mat44> = joint_matrices.iter().map(|&m| m.into()).collect();
+    pub fn skin_soft_body(&self, id: BodyId, joint_matrices: &[RMat44], hard_skin_all: bool, temp: &mut TempAllocator) -> Result<()> {
+        let joints: Vec<sys::JPC_RMat44> = joint_matrices.iter().map(|&m| m.into()).collect();
         let count = u32::try_from(joints.len()).map_err(|_| Error::new("too many joints"))?;
         let ok = unsafe { sys::JPC_BodyInterface_SkinSoftBody(self.as_raw(), id.0, joints.as_ptr(), count, hard_skin_all, temp.raw()) };
         if ok { Ok(()) } else { Err(Error::last()) }

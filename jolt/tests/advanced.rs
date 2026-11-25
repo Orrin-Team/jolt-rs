@@ -250,7 +250,7 @@ fn query_settings() {
 
     // A probe 0.5 away is only reported with a separation distance.
     let probe = Shape::sphere(0.5).unwrap();
-    let at = Mat44::from_translation(Vec3::new(2.0, 0.0, 0.0));
+    let at = RMat44::from_translation(Vec3::new(2.0, 0.0, 0.0));
     let mut near = Vec::new();
     let settings = CollideShapeSettings { max_separation_distance: 1.0, ..Default::default() };
     s.collide_shape_with_settings(&probe, Vec3::ONE, &at, &settings, &QueryFilter::new(), |h| {
@@ -262,7 +262,7 @@ fn query_settings() {
     assert!((near[0].penetration_depth + 0.5).abs() < 1e-3, "{:?}", near[0]);
 
     let mut swept = Vec::new();
-    let from = Mat44::from_translation(Vec3::new(5.0, 0.0, 0.0));
+    let from = RMat44::from_translation(Vec3::new(5.0, 0.0, 0.0));
     let settings = ShapeCastSettings { return_deepest_point: true, ..Default::default() };
     s.cast_shape_with_settings(&probe, Vec3::ONE, &from, Vec3::new(-10.0, 0.0, 0.0), &settings, &QueryFilter::new(), |h| {
         swept.push(h.clone());

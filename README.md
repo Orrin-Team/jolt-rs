@@ -58,7 +58,17 @@ system.update(1.0 / 60.0, 1, &mut temp, &jobs)?;
 | Materials | ✅ per shape, mesh triangle and height field cell, reported by hits, contacts and characters |
 | Soft bodies | ✅ cloth, cubes and custom meshes (vertices, faces, materials, edge/shear/bend/volume/long range constraints, generated or explicit), pinned vertices, pressure, vertex read/write, skinning to animated joints, Cosserat rods, contact listener, snapshots |
 | Debug rendering | ✅ bodies (shapes, bounds, transforms, velocities, soft body internals), constraints, limits, reference frames and skeleton poses as lines, triangles and text, behind the `debug-renderer` feature |
-| Not started | ❌ double precision |
+| Double precision | ✅ `f64` world space positions and transforms (`RVec3`, `RMat44`) throughout bodies, queries, contacts, constraints, characters, vehicles, ragdolls, soft bodies and debug rendering, behind the `double-precision` feature |
+
+## Features
+
+| Feature | |
+|---|---|
+| `double-precision` | World space positions in `f64`, for worlds thousands of kilometers across. `RVec3`/`RMat44` become `DVec3`/`DMat44`; methods taking a position still accept a `Vec3`. Constraints to the world stay `f32` relative to the origin, so far out attach them to a static body. |
+| `debug-renderer` | Compiles Jolt's debug renderer in, for `DebugRenderer`. |
+| `asserts` | Compiles Jolt's asserts in. |
+| `cross-platform-deterministic` | Identical simulation results across platforms and compilers (slower). |
+| `glam` | Conversions to and from `glam` types. |
 
 ## Safety
 
@@ -79,6 +89,7 @@ system.update(1.0 / 60.0, 1, &mut temp, &jobs)?;
 cargo test                            # integration, feature and regression tests
 cargo test -p orrin-jolt --features asserts # with Jolt's asserts compiled in
 cargo test -p orrin-jolt --features debug-renderer # with Jolt's debug renderer compiled in
+cargo test -p orrin-jolt --features double-precision # with f64 world space positions
 ./scripts/test-asan.sh                # against an AddressSanitizer build (macOS)
 JOLT_SYS_UPDATE_BINDINGS=1 cargo build -p orrin-jolt-sys --features bindgen  # after editing joltc.h
 ```

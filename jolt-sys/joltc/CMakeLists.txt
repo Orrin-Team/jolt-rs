@@ -19,6 +19,10 @@ target_sources(Jolt PRIVATE
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/joltc_debug.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/joltc_internal.h")
 target_include_directories(Jolt PUBLIC "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>")
+# Selects the double precision world space types in joltc.h for joltc and everything that links it
+if (DOUBLE_PRECISION)
+	target_compile_definitions(Jolt PUBLIC JPC_DOUBLE_PRECISION)
+endif()
 
 if (JOLTC_BUILD_EXAMPLES)
 	add_executable(joltc_hello_world examples/hello_world.c)

@@ -4,7 +4,7 @@ use std::ptr::NonNull;
 
 use jolt_sys as sys;
 
-use crate::{BodyId, Quat, Vec3};
+use crate::{BodyId, Quat, RVec3, Vec3};
 
 /// Identifies a constraint owned by a [`PhysicsSystem`](crate::PhysicsSystem).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -260,22 +260,22 @@ macro_rules! constraint_settings {
 constraint_settings!(FixedConstraintSettings, Fixed, JPC_FixedConstraintSettings, JPC_FixedConstraintSettings_SetDefault, JPC_PhysicsSystem_CreateFixedConstraint, {
     /// Use the bodies' current relative position instead of the points and axes below.
     auto_detect_point: bool,
-    point1: Vec3,
+    point1: RVec3,
     axis_x1: Vec3,
     axis_y1: Vec3,
-    point2: Vec3,
+    point2: RVec3,
     axis_x2: Vec3,
     axis_y2: Vec3,
 });
 
 constraint_settings!(PointConstraintSettings, Point, JPC_PointConstraintSettings, JPC_PointConstraintSettings_SetDefault, JPC_PhysicsSystem_CreatePointConstraint, {
-    point1: Vec3,
-    point2: Vec3,
+    point1: RVec3,
+    point2: RVec3,
 });
 
 constraint_settings!(DistanceConstraintSettings, Distance, JPC_DistanceConstraintSettings, JPC_DistanceConstraintSettings_SetDefault, JPC_PhysicsSystem_CreateDistanceConstraint, {
-    point1: Vec3,
-    point2: Vec3,
+    point1: RVec3,
+    point2: RVec3,
     /// Negative means "the initial distance".
     min_distance: f32,
     /// Negative means "the initial distance".
@@ -284,10 +284,10 @@ constraint_settings!(DistanceConstraintSettings, Distance, JPC_DistanceConstrain
 });
 
 constraint_settings!(HingeConstraintSettings, Hinge, JPC_HingeConstraintSettings, JPC_HingeConstraintSettings_SetDefault, JPC_PhysicsSystem_CreateHingeConstraint, {
-    point1: Vec3,
+    point1: RVec3,
     hinge_axis1: Vec3,
     normal_axis1: Vec3,
-    point2: Vec3,
+    point2: RVec3,
     hinge_axis2: Vec3,
     normal_axis2: Vec3,
     limits_min: f32,
@@ -299,10 +299,10 @@ constraint_settings!(HingeConstraintSettings, Hinge, JPC_HingeConstraintSettings
 
 constraint_settings!(SliderConstraintSettings, Slider, JPC_SliderConstraintSettings, JPC_SliderConstraintSettings_SetDefault, JPC_PhysicsSystem_CreateSliderConstraint, {
     auto_detect_point: bool,
-    point1: Vec3,
+    point1: RVec3,
     slider_axis1: Vec3,
     normal_axis1: Vec3,
-    point2: Vec3,
+    point2: RVec3,
     slider_axis2: Vec3,
     normal_axis2: Vec3,
     limits_min: f32,
@@ -313,18 +313,18 @@ constraint_settings!(SliderConstraintSettings, Slider, JPC_SliderConstraintSetti
 });
 
 constraint_settings!(ConeConstraintSettings, Cone, JPC_ConeConstraintSettings, JPC_ConeConstraintSettings_SetDefault, JPC_PhysicsSystem_CreateConeConstraint, {
-    point1: Vec3,
+    point1: RVec3,
     twist_axis1: Vec3,
-    point2: Vec3,
+    point2: RVec3,
     twist_axis2: Vec3,
     half_cone_angle: f32,
 });
 
 constraint_settings!(SwingTwistConstraintSettings, SwingTwist, JPC_SwingTwistConstraintSettings, JPC_SwingTwistConstraintSettings_SetDefault, JPC_PhysicsSystem_CreateSwingTwistConstraint, {
-    position1: Vec3,
+    position1: RVec3,
     twist_axis1: Vec3,
     plane_axis1: Vec3,
-    position2: Vec3,
+    position2: RVec3,
     twist_axis2: Vec3,
     plane_axis2: Vec3,
     swing_type: SwingType,
@@ -338,10 +338,10 @@ constraint_settings!(SwingTwistConstraintSettings, SwingTwist, JPC_SwingTwistCon
 });
 
 constraint_settings!(SixDofConstraintSettings, SixDof, JPC_SixDOFConstraintSettings, JPC_SixDOFConstraintSettings_SetDefault, JPC_PhysicsSystem_CreateSixDOFConstraint, {
-    position1: Vec3,
+    position1: RVec3,
     axis_x1: Vec3,
     axis_y1: Vec3,
-    position2: Vec3,
+    position2: RVec3,
     axis_x2: Vec3,
     axis_y2: Vec3,
     /// Indexed by [`SixDofAxis`].
@@ -372,10 +372,10 @@ constraint_settings!(RackAndPinionConstraintSettings, RackAndPinion, JPC_RackAnd
 });
 
 constraint_settings!(PulleyConstraintSettings, Pulley, JPC_PulleyConstraintSettings, JPC_PulleyConstraintSettings_SetDefault, JPC_PhysicsSystem_CreatePulleyConstraint, {
-    body_point1: Vec3,
-    fixed_point1: Vec3,
-    body_point2: Vec3,
-    fixed_point2: Vec3,
+    body_point1: RVec3,
+    fixed_point1: RVec3,
+    body_point2: RVec3,
+    fixed_point2: RVec3,
     /// Length on side 1 + ratio * length on side 2 stays within the limits.
     ratio: f32,
     min_length: f32,
@@ -448,7 +448,8 @@ impl RackAndPinionConstraintSettings {
 
 impl PulleyConstraintSettings {
     /// A rope from `body_point1` over the fixed points to `body_point2` (world space).
-    pub fn new(body_point1: Vec3, fixed_point1: Vec3, body_point2: Vec3, fixed_point2: Vec3) -> Self {
+    pub fn new(body_point1: impl Into<RVec3>, fixed_point1: impl Into<RVec3>, body_point2: impl Into<RVec3>, fixed_point2: impl Into<RVec3>) -> Self {
+        let (body_point1, fixed_point1, body_point2, fixed_point2) = (body_point1.into(), fixed_point1.into(), body_point2.into(), fixed_point2.into());
         Self { body_point1, fixed_point1, body_point2, fixed_point2, ..Default::default() }
     }
 
@@ -608,7 +609,8 @@ impl ConstraintSettings for PathConstraintSettings {
 impl SwingTwistConstraintSettings {
     /// A shoulder-like joint at a world space point. The twist axis points along the limb; the plane axis is
     /// perpendicular to it and picks which way `plane_half_cone_angle` applies.
-    pub fn at(point: Vec3, twist_axis: Vec3, plane_axis: Vec3) -> Self {
+    pub fn at(point: impl Into<RVec3>, twist_axis: Vec3, plane_axis: Vec3) -> Self {
+        let point: RVec3 = point.into();
         Self {
             position1: point,
             twist_axis1: twist_axis,
@@ -665,7 +667,8 @@ impl SwingTwistConstraintSettings {
 
 impl SixDofConstraintSettings {
     /// A constraint frame at a world space point; every axis starts free.
-    pub fn at(point: Vec3, axis_x: Vec3, axis_y: Vec3) -> Self {
+    pub fn at(point: impl Into<RVec3>, axis_x: Vec3, axis_y: Vec3) -> Self {
+        let point: RVec3 = point.into();
         Self { position1: point, axis_x1: axis_x, axis_y1: axis_y, position2: point, axis_x2: axis_x, axis_y2: axis_y, ..Default::default() }
     }
 
@@ -763,7 +766,8 @@ impl FixedConstraintSettings {
 
 impl PointConstraintSettings {
     /// A ball joint at a world space point.
-    pub fn at(point: Vec3) -> Self {
+    pub fn at(point: impl Into<RVec3>) -> Self {
+        let point: RVec3 = point.into();
         Self { point1: point, point2: point, ..Default::default() }
     }
 
@@ -788,7 +792,8 @@ impl PointConstraintSettings {
 
 impl DistanceConstraintSettings {
     /// Keeps two world space points at their current distance.
-    pub fn between(point1: Vec3, point2: Vec3) -> Self {
+    pub fn between(point1: impl Into<RVec3>, point2: impl Into<RVec3>) -> Self {
+        let (point1, point2): (RVec3, RVec3) = (point1.into(), point2.into());
         Self { point1, point2, ..Default::default() }
     }
 
@@ -819,7 +824,8 @@ impl DistanceConstraintSettings {
 
 impl HingeConstraintSettings {
     /// A hinge at a world space point. `normal_axis` must be perpendicular to `hinge_axis`; angles are measured from it.
-    pub fn at(point: Vec3, hinge_axis: Vec3, normal_axis: Vec3) -> Self {
+    pub fn at(point: impl Into<RVec3>, hinge_axis: Vec3, normal_axis: Vec3) -> Self {
+        let point: RVec3 = point.into();
         Self {
             point1: point,
             hinge_axis1: hinge_axis,
@@ -870,7 +876,8 @@ impl HingeConstraintSettings {
 
 impl SliderConstraintSettings {
     /// A slider through a world space point. `normal_axis` must be perpendicular to `slider_axis`.
-    pub fn at(point: Vec3, slider_axis: Vec3, normal_axis: Vec3) -> Self {
+    pub fn at(point: impl Into<RVec3>, slider_axis: Vec3, normal_axis: Vec3) -> Self {
+        let point: RVec3 = point.into();
         Self {
             point1: point,
             slider_axis1: slider_axis,
@@ -923,7 +930,8 @@ impl SliderConstraintSettings {
 
 impl ConeConstraintSettings {
     /// A ball joint at a world space point whose twist axis may deviate at most `half_cone_angle` radians.
-    pub fn at(point: Vec3, twist_axis: Vec3, half_cone_angle: f32) -> Self {
+    pub fn at(point: impl Into<RVec3>, twist_axis: Vec3, half_cone_angle: f32) -> Self {
+        let point: RVec3 = point.into();
         Self { point1: point, twist_axis1: twist_axis, point2: point, twist_axis2: twist_axis, half_cone_angle, ..Default::default() }
     }
 

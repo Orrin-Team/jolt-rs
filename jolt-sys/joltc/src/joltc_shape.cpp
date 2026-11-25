@@ -814,17 +814,19 @@ void JPC_Shape_GetTriangles(const JPC_Shape *shape, JPC_RVec3 position_com, JPC_
 							JPC_TriangleCollectorFn collector, void *user_data)
 {
 	const Shape *s = ToJph(shape);
-	AABox bounds = box != nullptr ? AABox(ToJph(box->min), ToJph(box->max)) : AABox::sBiggest();
+	// Jolt triangulates in single precision, so work around the origin and add the position back in world precision
+	RVec3 origin = ToJph(position_com);
+	AABox bounds = box != nullptr ? AABox(Vec3(RVec3(ToJph(box->min)) - origin), Vec3(RVec3(ToJph(box->max)) - origin)) : AABox::sBiggest();
 	Quat q = ToJph(rotation);
 	q = q.LengthSq() > 1.0e-12f ? q.Normalized() : Quat::sIdentity();
 
 	Shape::GetTrianglesContext context;
-	s->GetTrianglesStart(context, bounds, ToJph(position_com), q, s->MakeScaleValid(ToJph(scale)));
+	s->GetTrianglesStart(context, bounds, Vec3::sZero(), q, s->MakeScaleValid(ToJph(scale)));
 
 	constexpr int cBatch = max(Shape::cGetTrianglesMinTrianglesRequested, 256);
 	Float3 vertices[3 * cBatch];
 	const PhysicsMaterial *materials[cBatch];
-	JPC_Vec3 out_vertices[3 * cBatch];
+	JPC_RVec3 out_vertices[3 * cBatch];
 	const JPC_PhysicsMaterial *out_materials[cBatch];
 	for (;;)
 	{
@@ -832,7 +834,7 @@ void JPC_Shape_GetTriangles(const JPC_Shape *shape, JPC_RVec3 position_com, JPC_
 		if (count <= 0)
 			break;
 		for (int i = 0; i < 3 * count; ++i)
-			out_vertices[i] = { vertices[i].x, vertices[i].y, vertices[i].z };
+			out_vertices[i] = ToC(origin + Vec3(vertices[i]));
 		for (int i = 0; i < count; ++i)
 			out_materials[i] = ToC(materials[i]);
 		if (!collector(user_data, out_vertices, out_materials, uint32_t(count)))

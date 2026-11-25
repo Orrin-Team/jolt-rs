@@ -513,6 +513,10 @@ impl PhysicsSystem {
     }
 
     /// Creates a constraint between a body and the static world and adds it to the simulation.
+    ///
+    /// Jolt measures these constraints from the origin in `f32`, even with the `double-precision` feature: thousands
+    /// of kilometers out they go slack by up to a meter. There, constrain the body to a static body placed near the
+    /// constraint with [`add_constraint`](Self::add_constraint) instead.
     pub fn add_constraint_to_world(&mut self, settings: &impl ConstraintSettings, body: BodyId) -> Result<ConstraintId> {
         if !body.is_valid() {
             return Err(Error::new("invalid body id"));

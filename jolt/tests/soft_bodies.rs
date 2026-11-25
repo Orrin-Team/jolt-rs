@@ -124,7 +124,7 @@ fn soft_body_lands_and_can_be_moved() {
 
     world.step(120);
     let vertices = world.system.body_interface().soft_body_vertices(body, true).unwrap();
-    let lowest = vertices.iter().map(|v| v.position.y).fold(f32::MAX, f32::min);
+    let lowest = vertices.iter().map(|v| v.position.y).fold(Real::MAX, Real::min);
     assert!(lowest.abs() < 0.1, "the cube rests on the floor: {lowest}");
 
     // Pin a vertex and drag it.
@@ -329,7 +329,7 @@ fn shape_queries_collect_faces() {
     let world = World::new();
     world.floor();
     let shape = Shape::cuboid(Vec3::splat(0.5)).unwrap();
-    let transform = Mat44::from_rotation_translation(Quat::IDENTITY, Vec3::new(0.0, 0.45, 0.0));
+    let transform = RMat44::from_rotation_translation(Quat::IDENTITY, Vec3::new(0.0, 0.45, 0.0));
 
     let mut hits = Vec::new();
     world.system.collide_shape(&shape, Vec3::splat(1.0), &transform, 0.0, &QueryFilter::new(), |h| {
@@ -350,7 +350,7 @@ fn shape_queries_collect_faces() {
     assert!(hit.face2.len() >= 3 && hit.face2.iter().all(|p| p.y.abs() < 1e-3), "top face of the floor: {:?}", hit.face2);
 
     let settings = ShapeCastSettings { collect_faces: true, ..Default::default() };
-    let start = Mat44::from_rotation_translation(Quat::IDENTITY, Vec3::new(0.0, 3.0, 0.0));
+    let start = RMat44::from_rotation_translation(Quat::IDENTITY, Vec3::new(0.0, 3.0, 0.0));
     let mut hits = Vec::new();
     world.system.cast_shape_with_settings(&shape, Vec3::splat(1.0), &start, Vec3::new(0.0, -5.0, 0.0), &settings, &QueryFilter::new(), |h| {
         hits.push(h.clone());
@@ -560,7 +560,7 @@ fn soft_body_contact_listener() {
     world.system.set_soft_body_contact_listener(Shared(rejecting.clone()));
     let other = world.soft_cube(Vec3::new(5.0, 0.5, 0.0));
     world.step(60);
-    let lowest = world.system.body_interface().soft_body_vertices(other, true).unwrap().iter().map(|v| v.position.y).fold(f32::MAX, f32::min);
+    let lowest = world.system.body_interface().soft_body_vertices(other, true).unwrap().iter().map(|v| v.position.y).fold(Real::MAX, Real::min);
     assert!(lowest < -0.5, "the rejected floor doesn't hold the cube: {lowest}");
     assert!(rejecting.contacts.lock().unwrap().iter().all(|c| c.body != floor));
     let _ = (cube, normal_y);
@@ -605,7 +605,7 @@ fn skinned_soft_body_follows_its_joints() {
     assert!(vertices.iter().all(|v| v.position.x.is_finite() && v.position.y.is_finite()));
 
     let bodies = world.system.body_interface();
-    let joints = |offset: Vec3| vec![Mat44::IDENTITY, Mat44::from_translation(Vec3::new(0.0, 5.0, 0.0) + offset)];
+    let joints = |offset: Vec3| vec![RMat44::IDENTITY, RMat44::from_translation(Vec3::new(0.0, 5.0, 0.0) + offset)];
     assert!(bodies.skin_soft_body(body, &joints(Vec3::ZERO)[..1], true, &mut world.temp).unwrap_err().message().contains("joint"));
     bodies.skin_soft_body(body, &joints(Vec3::ZERO), true, &mut world.temp).unwrap();
     let skinned = bodies.soft_body_vertices(body, true).unwrap();

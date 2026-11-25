@@ -539,7 +539,7 @@ fn buoyancy_and_body_queries() {
     assert!(!bi.apply_buoyancy_impulse(floor, Vec3::ZERO, Vec3::Y, 2.0, 0.5, 0.05, Vec3::ZERO, GRAVITY, DT));
 
     let mut overlapping = 0;
-    world.system.collide_point(Vec3::new(0.0, y, 0.0), &QueryFilter::new(), |_| {
+    world.system.collide_point(RVec3::new(0.0, y, 0.0), &QueryFilter::new(), |_| {
         overlapping += 1;
         ControlFlow::Continue(())
     });

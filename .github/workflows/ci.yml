@@ -29,6 +29,10 @@ jobs:
         run: cargo test -p orrin-jolt --features asserts
       - name: Test with the debug renderer
         run: cargo test -p orrin-jolt --features debug-renderer
+      - name: Test in double precision
+        run: |
+          cargo clippy -p orrin-jolt --all-targets --features double-precision,debug-renderer -- -D warnings
+          cargo test -p orrin-jolt --features double-precision,debug-renderer
 
   asan:
     name: AddressSanitizer
@@ -64,3 +68,10 @@ jobs:
           -DINTERPROCEDURAL_OPTIMIZATION=OFF -DUSE_ASSERTS=ON "-DCMAKE_CXX_FLAGS=${{ matrix.cxxflags }}"
       - run: cmake --build build --target joltc_hello_world --parallel
       - run: ./build/joltc_hello_world
+      - name: Double precision
+        run: |
+          cmake -S jolt-sys/joltc -B build-double -DCMAKE_BUILD_TYPE=Release -DJOLTC_BUILD_EXAMPLES=ON -DDOUBLE_PRECISION=ON \
+            -DJPH_USE_DX12=OFF -DJPH_USE_VK=OFF -DJPH_USE_MTL=OFF -DJPH_USE_CPU_COMPUTE=OFF \
+            -DINTERPROCEDURAL_OPTIMIZATION=OFF -DUSE_ASSERTS=ON "-DCMAKE_CXX_FLAGS=${{ matrix.cxxflags }}"
+          cmake --build build-double --target joltc_hello_world --parallel
+          ./build-double/joltc_hello_world

@@ -25,7 +25,7 @@ use std::ptr::NonNull;
 use jolt_sys as sys;
 
 use crate::constraint::{ConstraintCommon, ConstraintKind, ConstraintSettings, SpringSettings, private};
-use crate::{BodyId, ConstraintId, Error, Mat44, ObjectLayer, PhysicsSystem, Result, SubShapeId, Vec3};
+use crate::{BodyId, ConstraintId, Error, ObjectLayer, PhysicsSystem, RMat44, RVec3, Result, SubShapeId, Vec3};
 
 /// How wheels find the ground. Reference counted; one tester can be shared by many vehicles. Wheels ignore their
 /// own vehicle and soft bodies.
@@ -681,7 +681,7 @@ pub struct WheelState {
     /// The body the wheel stands on, if any.
     pub contact_body: Option<BodyId>,
     pub contact_sub_shape_id: SubShapeId,
-    pub contact_position: Vec3,
+    pub contact_position: RVec3,
     pub contact_normal: Vec3,
     pub contact_point_velocity: Vec3,
     pub suspension_length: f32,
@@ -828,9 +828,9 @@ impl VehicleMut<'_> {
     }
 
     /// World transform for a wheel model whose axle points along `wheel_right` and top along `wheel_up` in model space.
-    pub fn wheel_world_transform(&self, index: usize, wheel_right: Vec3, wheel_up: Vec3) -> Option<Mat44> {
+    pub fn wheel_world_transform(&self, index: usize, wheel_right: Vec3, wheel_up: Vec3) -> Option<RMat44> {
         let index = u32::try_from(index).ok()?;
-        let mut raw = sys::JPC_Mat44::default();
+        let mut raw = sys::JPC_RMat44::default();
         unsafe { sys::JPC_Vehicle_GetWheelWorldTransform(self.ptr(), index, wheel_right.into(), wheel_up.into(), &mut raw) }.then(|| raw.into())
     }
 

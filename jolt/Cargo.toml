@@ -23,4 +23,7 @@ asserts = ["jolt-sys/asserts"]
 cross-platform-deterministic = ["jolt-sys/cross-platform-deterministic"]
 # Draw bodies and constraints through `DebugRenderer`.
 debug-renderer = ["jolt-sys/debug-renderer"]
+# World space positions and transforms in double precision (`RVec3` = `DVec3`, `RMat44` = `DMat44`), for very large
+# worlds. Slower and uses more memory.
+double-precision = ["jolt-sys/double-precision"]
 glam = ["dep:glam"]

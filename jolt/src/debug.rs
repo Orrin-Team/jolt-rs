@@ -3,10 +3,10 @@
 //!
 //! ```no_run
 //! # use jolt::*;
-//! struct Lines(Vec<(Vec3, Vec3, Color)>);
+//! struct Lines(Vec<(RVec3, RVec3, Color)>);
 //!
 //! impl DebugDraw for Lines {
-//!     fn draw_line(&mut self, from: Vec3, to: Vec3, color: Color) {
+//!     fn draw_line(&mut self, from: RVec3, to: RVec3, color: Color) {
 //!         self.0.push((from, to, color));
 //!     }
 //! }
@@ -27,7 +27,8 @@ use std::ptr::NonNull;
 use jolt_sys as sys;
 
 use crate::listener::PanicSlot;
-use crate::{Body, BodyId, ContactManifold, ContactSettings, Error, Mat44, PhysicsSystem, Result, Skeleton, Vec3};
+use crate::math::rvec3;
+use crate::{Body, BodyId, ContactManifold, ContactSettings, Error, Mat44, PhysicsSystem, RVec3, Result, Skeleton, Vec3};
 
 /// An 8 bit per channel color.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -52,10 +53,10 @@ impl From<sys::JPC_Color> for Color {
 
 /// Where debug drawing ends up: implement it on top of your renderer.
 pub trait DebugDraw {
-    fn draw_line(&mut self, from: Vec3, to: Vec3, color: Color);
+    fn draw_line(&mut self, from: RVec3, to: RVec3, color: Color);
 
     /// Defaults to drawing the triangle's edges.
-    fn draw_triangle(&mut self, v1: Vec3, v2: Vec3, v3: Vec3, color: Color, cast_shadow: bool) {
+    fn draw_triangle(&mut self, v1: RVec3, v2: RVec3, v3: RVec3, color: Color, cast_shadow: bool) {
         let _ = cast_shadow;
         self.draw_line(v1, v2, color);
         self.draw_line(v2, v3, color);
@@ -63,7 +64,7 @@ pub trait DebugDraw {
     }
 
     /// Defaults to drawing nothing.
-    fn draw_text(&mut self, position: Vec3, text: &str, color: Color, height: f32) {
+    fn draw_text(&mut self, position: RVec3, text: &str, color: Color, height: f32) {
         let _ = (position, text, color, height);
     }
 }
@@ -228,8 +229,8 @@ impl DebugRenderer {
     }
 
     /// Detailed shapes are simplified with distance from the camera.
-    pub fn set_camera_position(&mut self, position: Vec3) {
-        unsafe { sys::JPC_DebugRenderer_SetCameraPosition(self.raw.as_ptr(), position.into()) }
+    pub fn set_camera_position(&mut self, position: impl Into<RVec3>) {
+        unsafe { sys::JPC_DebugRenderer_SetCameraPosition(self.raw.as_ptr(), rvec3(position)) }
     }
 
     /// Runs `f` with the renderer pointed at `draw`, then resumes any panic from `draw`.
@@ -265,7 +266,7 @@ unsafe fn sink<'a>(user_data: *mut c_void) -> &'a mut Sink<'a> {
     unsafe { &mut *user_data.cast::<Sink<'a>>() }
 }
 
-unsafe extern "C" fn draw_line(user_data: *mut c_void, from: sys::JPC_Vec3, to: sys::JPC_Vec3, color: sys::JPC_Color) {
+unsafe extern "C" fn draw_line(user_data: *mut c_void, from: sys::JPC_RVec3, to: sys::JPC_RVec3, color: sys::JPC_Color) {
     let s = unsafe { sink(user_data) };
     let draw = &mut *s.draw;
     s.panic.guard((), || draw.draw_line(from.into(), to.into(), color.into()));
@@ -273,9 +274,9 @@ unsafe extern "C" fn draw_line(user_data: *mut c_void, from: sys::JPC_Vec3, to: 
 
 unsafe extern "C" fn draw_triangle(
     user_data: *mut c_void,
-    v1: sys::JPC_Vec3,
-    v2: sys::JPC_Vec3,
-    v3: sys::JPC_Vec3,
+    v1: sys::JPC_RVec3,
+    v2: sys::JPC_RVec3,
+    v3: sys::JPC_RVec3,
     color: sys::JPC_Color,
     cast_shadow: bool,
 ) {
@@ -284,7 +285,7 @@ unsafe extern "C" fn draw_triangle(
     s.panic.guard((), || draw.draw_triangle(v1.into(), v2.into(), v3.into(), color.into(), cast_shadow));
 }
 
-unsafe extern "C" fn draw_text(user_data: *mut c_void, position: sys::JPC_Vec3, text: *const std::ffi::c_char, length: usize, color: sys::JPC_Color, height: f32) {
+unsafe extern "C" fn draw_text(user_data: *mut c_void, position: sys::JPC_RVec3, text: *const std::ffi::c_char, length: usize, color: sys::JPC_Color, height: f32) {
     let s = unsafe { sink(user_data) };
     let bytes = if length == 0 { &[][..] } else { unsafe { std::slice::from_raw_parts(text.cast::<u8>(), length) } };
     let text = String::from_utf8_lossy(bytes);
@@ -342,11 +343,12 @@ impl PhysicsSystem {
 impl Skeleton {
     /// Draws the skeleton posed with one model space matrix per joint, moved by `root_offset`. Panics unless there is
     /// one matrix per joint.
-    pub fn draw_pose(&self, renderer: &mut DebugRenderer, joint_matrices: &[Mat44], root_offset: Vec3, draw_joint_names: bool, draw: &mut dyn DebugDraw) {
+    pub fn draw_pose(&self, renderer: &mut DebugRenderer, joint_matrices: &[Mat44], root_offset: impl Into<RVec3>, draw_joint_names: bool, draw: &mut dyn DebugDraw) {
         assert_eq!(joint_matrices.len(), self.joint_count(), "one matrix per joint");
         let matrices: Vec<sys::JPC_Mat44> = joint_matrices.iter().map(|&m| m.into()).collect();
         let skeleton = self.as_raw();
-        renderer.with(draw, |r| unsafe { sys::JPC_Skeleton_DrawPose(skeleton, matrices.as_ptr(), root_offset.into(), draw_joint_names, r) });
+        let root_offset = rvec3(root_offset);
+        renderer.with(draw, |r| unsafe { sys::JPC_Skeleton_DrawPose(skeleton, matrices.as_ptr(), root_offset, draw_joint_names, r) });
     }
 }
 

@@ -6,7 +6,8 @@ use std::ptr::NonNull;
 
 use jolt_sys as sys;
 
-use crate::{AABox, CollisionGroup, Error, Mat44, MassProperties, MutableCompound, ObjectLayer, PhysicsSystem, Quat, Result, Shape, Vec3};
+use crate::math::rvec3;
+use crate::{AABox, CollisionGroup, Error, Mat44, MassProperties, MutableCompound, ObjectLayer, PhysicsSystem, Quat, RMat44, RVec3, Result, Shape, Vec3};
 
 /// Identifies a body. Ids of destroyed bodies are never reused for a different body
 /// (they carry a sequence number), so a stale id simply stops matching anything.
@@ -183,7 +184,7 @@ pub enum OverrideMassProperties {
 #[derive(Clone, Debug)]
 pub struct BodyCreationSettings {
     pub shape: Shape,
-    pub position: Vec3,
+    pub position: RVec3,
     pub rotation: Quat,
     pub linear_velocity: Vec3,
     pub angular_velocity: Vec3,
@@ -216,7 +217,8 @@ pub struct BodyCreationSettings {
 
 impl BodyCreationSettings {
     /// Jolt's defaults for everything else.
-    pub fn new(shape: Shape, position: Vec3, rotation: Quat, motion_type: MotionType, object_layer: ObjectLayer) -> Self {
+    pub fn new(shape: Shape, position: impl Into<RVec3>, rotation: Quat, motion_type: MotionType, object_layer: ObjectLayer) -> Self {
+        let position = position.into();
         let mut d = sys::JPC_BodyCreationSettings::default();
         unsafe { sys::JPC_BodyCreationSettings_SetDefault(&mut d) };
         Self {
@@ -492,15 +494,15 @@ impl<'a> BodyInterface<'a> {
         if unsafe { sys::JPC_BodyInterface_SetObjectLayer(self.raw, id.0, layer.0) } { Ok(()) } else { Err(Error::last()) }
     }
 
-    pub fn position(&self, id: BodyId) -> Vec3 {
+    pub fn position(&self, id: BodyId) -> RVec3 {
         unsafe { sys::JPC_BodyInterface_GetPosition(self.raw, id.0) }.into()
     }
 
-    pub fn set_position(&self, id: BodyId, position: Vec3, activation: Activation) {
-        unsafe { sys::JPC_BodyInterface_SetPosition(self.raw, id.0, position.into(), activation.to_sys()) }
+    pub fn set_position(&self, id: BodyId, position: impl Into<RVec3>, activation: Activation) {
+        unsafe { sys::JPC_BodyInterface_SetPosition(self.raw, id.0, rvec3(position), activation.to_sys()) }
     }
 
-    pub fn center_of_mass_position(&self, id: BodyId) -> Vec3 {
+    pub fn center_of_mass_position(&self, id: BodyId) -> RVec3 {
         unsafe { sys::JPC_BodyInterface_GetCenterOfMassPosition(self.raw, id.0) }.into()
     }
 
@@ -512,46 +514,46 @@ impl<'a> BodyInterface<'a> {
         unsafe { sys::JPC_BodyInterface_SetRotation(self.raw, id.0, rotation.into(), activation.to_sys()) }
     }
 
-    pub fn position_and_rotation(&self, id: BodyId) -> (Vec3, Quat) {
-        let mut position = sys::JPC_Vec3::default();
+    pub fn position_and_rotation(&self, id: BodyId) -> (RVec3, Quat) {
+        let mut position = sys::JPC_RVec3::default();
         let mut rotation = sys::JPC_Quat::default();
         unsafe { sys::JPC_BodyInterface_GetPositionAndRotation(self.raw, id.0, &mut position, &mut rotation) };
         (position.into(), rotation.into())
     }
 
-    pub fn set_position_and_rotation(&self, id: BodyId, position: Vec3, rotation: Quat, activation: Activation) {
+    pub fn set_position_and_rotation(&self, id: BodyId, position: impl Into<RVec3>, rotation: Quat, activation: Activation) {
         unsafe {
-            sys::JPC_BodyInterface_SetPositionAndRotation(self.raw, id.0, position.into(), rotation.into(), activation.to_sys())
+            sys::JPC_BodyInterface_SetPositionAndRotation(self.raw, id.0, rvec3(position), rotation.into(), activation.to_sys())
         }
     }
 
     /// Like [`set_position_and_rotation`](Self::set_position_and_rotation) but skips bodies that did not move,
     /// avoiding needless wake-ups and broad phase updates.
-    pub fn set_position_and_rotation_when_changed(&self, id: BodyId, position: Vec3, rotation: Quat, activation: Activation) {
+    pub fn set_position_and_rotation_when_changed(&self, id: BodyId, position: impl Into<RVec3>, rotation: Quat, activation: Activation) {
         unsafe {
             sys::JPC_BodyInterface_SetPositionAndRotationWhenChanged(
                 self.raw,
                 id.0,
-                position.into(),
+                rvec3(position),
                 rotation.into(),
                 activation.to_sys(),
             )
         }
     }
 
-    pub fn world_transform(&self, id: BodyId) -> Mat44 {
+    pub fn world_transform(&self, id: BodyId) -> RMat44 {
         unsafe { sys::JPC_BodyInterface_GetWorldTransform(self.raw, id.0) }.into()
     }
 
-    pub fn center_of_mass_transform(&self, id: BodyId) -> Mat44 {
+    pub fn center_of_mass_transform(&self, id: BodyId) -> RMat44 {
         unsafe { sys::JPC_BodyInterface_GetCenterOfMassTransform(self.raw, id.0) }.into()
     }
 
     /// Sets the velocities of a kinematic body so it reaches the target in `delta_time` seconds. Does nothing for
     /// static and soft bodies.
-    pub fn move_kinematic(&self, id: BodyId, target_position: Vec3, target_rotation: Quat, delta_time: f32) {
+    pub fn move_kinematic(&self, id: BodyId, target_position: impl Into<RVec3>, target_rotation: Quat, delta_time: f32) {
         unsafe {
-            sys::JPC_BodyInterface_MoveKinematic(self.raw, id.0, target_position.into(), target_rotation.into(), delta_time)
+            sys::JPC_BodyInterface_MoveKinematic(self.raw, id.0, rvec3(target_position), target_rotation.into(), delta_time)
         }
     }
 
@@ -582,8 +584,8 @@ impl<'a> BodyInterface<'a> {
     }
 
     /// Velocity of a world space point attached to the body.
-    pub fn point_velocity(&self, id: BodyId, point: Vec3) -> Vec3 {
-        unsafe { sys::JPC_BodyInterface_GetPointVelocity(self.raw, id.0, point.into()) }.into()
+    pub fn point_velocity(&self, id: BodyId, point: impl Into<RVec3>) -> Vec3 {
+        unsafe { sys::JPC_BodyInterface_GetPointVelocity(self.raw, id.0, rvec3(point)) }.into()
     }
 
     /// Applied at the center of mass during the next update.
@@ -591,8 +593,8 @@ impl<'a> BodyInterface<'a> {
         unsafe { sys::JPC_BodyInterface_AddForce(self.raw, id.0, force.into(), activation.to_sys()) }
     }
 
-    pub fn add_force_at_point(&self, id: BodyId, force: Vec3, point: Vec3, activation: Activation) {
-        unsafe { sys::JPC_BodyInterface_AddForceAtPoint(self.raw, id.0, force.into(), point.into(), activation.to_sys()) }
+    pub fn add_force_at_point(&self, id: BodyId, force: Vec3, point: impl Into<RVec3>, activation: Activation) {
+        unsafe { sys::JPC_BodyInterface_AddForceAtPoint(self.raw, id.0, force.into(), rvec3(point), activation.to_sys()) }
     }
 
     pub fn add_torque(&self, id: BodyId, torque: Vec3, activation: Activation) {
@@ -603,8 +605,8 @@ impl<'a> BodyInterface<'a> {
         unsafe { sys::JPC_BodyInterface_AddImpulse(self.raw, id.0, impulse.into()) }
     }
 
-    pub fn add_impulse_at_point(&self, id: BodyId, impulse: Vec3, point: Vec3) {
-        unsafe { sys::JPC_BodyInterface_AddImpulseAtPoint(self.raw, id.0, impulse.into(), point.into()) }
+    pub fn add_impulse_at_point(&self, id: BodyId, impulse: Vec3, point: impl Into<RVec3>) {
+        unsafe { sys::JPC_BodyInterface_AddImpulseAtPoint(self.raw, id.0, impulse.into(), rvec3(point)) }
     }
 
     pub fn add_angular_impulse(&self, id: BodyId, angular_impulse: Vec3) {
@@ -736,7 +738,7 @@ impl<'a> BodyInterface<'a> {
     pub fn apply_buoyancy_impulse(
         &self,
         id: BodyId,
-        surface_position: Vec3,
+        surface_position: impl Into<RVec3>,
         surface_normal: Vec3,
         buoyancy: f32,
         linear_drag: f32,
@@ -749,7 +751,7 @@ impl<'a> BodyInterface<'a> {
             sys::JPC_BodyInterface_ApplyBuoyancyImpulse(
                 self.raw,
                 id.0,
-                surface_position.into(),
+                rvec3(surface_position),
                 surface_normal.into(),
                 buoyancy,
                 linear_drag,
@@ -817,7 +819,7 @@ impl Body {
         unsafe { sys::JPC_Body_IsActive(self.raw()) }
     }
 
-    pub fn position(&self) -> Vec3 {
+    pub fn position(&self) -> RVec3 {
         unsafe { sys::JPC_Body_GetPosition(self.raw()) }.into()
     }
 
@@ -825,7 +827,7 @@ impl Body {
         unsafe { sys::JPC_Body_GetRotation(self.raw()) }.into()
     }
 
-    pub fn center_of_mass_position(&self) -> Vec3 {
+    pub fn center_of_mass_position(&self) -> RVec3 {
         unsafe { sys::JPC_Body_GetCenterOfMassPosition(self.raw()) }.into()
     }
 

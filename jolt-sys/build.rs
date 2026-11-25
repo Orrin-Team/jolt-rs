@@ -57,7 +57,7 @@ fn build_jolt(joltc_dir: &std::path::Path, jolt_dir: &std::path::Path) {
         .define("JPH_USE_VK", "OFF")
         .define("JPH_USE_MTL", "OFF")
         .define("JPH_USE_CPU_COMPUTE", "OFF")
-        .define("DOUBLE_PRECISION", "OFF")
+        .define("DOUBLE_PRECISION", on_off(cfg!(feature = "double-precision")))
         .define("OBJECT_LAYER_BITS", "16")
         // On MSVC Jolt otherwise traps floating point exceptions in its worker threads, where Rust callbacks run too:
         // any NaN in a listener would kill the process.
@@ -100,24 +100,29 @@ fn build_jolt(joltc_dir: &std::path::Path, jolt_dir: &std::path::Path) {
 
 #[cfg(feature = "bindgen")]
 fn generate_bindings(manifest_dir: &std::path::Path, joltc_dir: &std::path::Path) {
-    let header = joltc_dir.join("include").join("joltc.h");
-    let bindings = bindgen::Builder::default()
-        .header(header.to_string_lossy())
-        .allowlist_item("JPC_.*")
-        .prepend_enum_name(false)
-        .default_enum_style(bindgen::EnumVariation::Consts)
-        .derive_default(true)
-        .derive_debug(true)
-        .derive_copy(true)
-        .use_core()
-        .rust_edition(bindgen::RustEdition::Edition2024)
-        .generate()
-        .expect("failed to generate bindings");
+    // The header selects its world space types with JPC_DOUBLE_PRECISION, so each precision gets its own bindings.
+    for (double, file) in [(false, "bindings.rs"), (true, "bindings_double.rs")] {
+        let header = joltc_dir.join("include").join("joltc.h");
+        let mut builder = bindgen::Builder::default()
+            .header(header.to_string_lossy())
+            .allowlist_item("JPC_.*")
+            .prepend_enum_name(false)
+            .default_enum_style(bindgen::EnumVariation::Consts)
+            .derive_default(true)
+            .derive_debug(true)
+            .derive_copy(true)
+            .use_core()
+            .rust_edition(bindgen::RustEdition::Edition2024);
+        if double {
+            builder = builder.clang_arg("-DJPC_DOUBLE_PRECISION");
+        }
+        let bindings = builder.generate().expect("failed to generate bindings");
 
-    let out = PathBuf::from(env::var("OUT_DIR").unwrap()).join("bindings.rs");
-    bindings.write_to_file(&out).expect("failed to write bindings");
+        let out = PathBuf::from(env::var("OUT_DIR").unwrap()).join(file);
+        bindings.write_to_file(&out).expect("failed to write bindings");
 
-    if env::var_os("JOLT_SYS_UPDATE_BINDINGS").is_some() {
-        std::fs::copy(&out, manifest_dir.join("src").join("bindings.rs")).expect("failed to update src/bindings.rs");
+        if env::var_os("JOLT_SYS_UPDATE_BINDINGS").is_some() {
+            std::fs::copy(&out, manifest_dir.join("src").join(file)).expect("failed to update the committed bindings");
+        }
     }
 }

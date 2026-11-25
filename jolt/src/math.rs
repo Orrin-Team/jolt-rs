@@ -256,6 +256,205 @@ impl Mat44 {
     }
 }
 
+/// A double precision vector, for world space positions in double precision builds.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DVec3 {
+    pub x: f64,
+    pub y: f64,
+    pub z: f64,
+}
+
+impl DVec3 {
+    pub const ZERO: Self = Self::new(0.0, 0.0, 0.0);
+    pub const ONE: Self = Self::new(1.0, 1.0, 1.0);
+    pub const X: Self = Self::new(1.0, 0.0, 0.0);
+    pub const Y: Self = Self::new(0.0, 1.0, 0.0);
+    pub const Z: Self = Self::new(0.0, 0.0, 1.0);
+
+    pub const fn new(x: f64, y: f64, z: f64) -> Self {
+        Self { x, y, z }
+    }
+
+    pub const fn splat(v: f64) -> Self {
+        Self::new(v, v, v)
+    }
+
+    pub fn dot(self, rhs: Self) -> f64 {
+        self.x * rhs.x + self.y * rhs.y + self.z * rhs.z
+    }
+
+    pub fn length_squared(self) -> f64 {
+        self.dot(self)
+    }
+
+    pub fn length(self) -> f64 {
+        self.length_squared().sqrt()
+    }
+
+    /// Rounds to single precision, e.g. for an offset that is known to be small.
+    pub fn as_vec3(self) -> Vec3 {
+        Vec3::new(self.x as f32, self.y as f32, self.z as f32)
+    }
+}
+
+impl From<Vec3> for DVec3 {
+    fn from(v: Vec3) -> Self {
+        Self::new(v.x as f64, v.y as f64, v.z as f64)
+    }
+}
+
+impl From<[f64; 3]> for DVec3 {
+    fn from(v: [f64; 3]) -> Self {
+        Self::new(v[0], v[1], v[2])
+    }
+}
+
+impl From<DVec3> for [f64; 3] {
+    fn from(v: DVec3) -> Self {
+        [v.x, v.y, v.z]
+    }
+}
+
+impl Add for DVec3 {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self {
+        Self::new(self.x + rhs.x, self.y + rhs.y, self.z + rhs.z)
+    }
+}
+
+impl Add<Vec3> for DVec3 {
+    type Output = Self;
+    fn add(self, rhs: Vec3) -> Self {
+        self + DVec3::from(rhs)
+    }
+}
+
+impl Sub for DVec3 {
+    type Output = Self;
+    fn sub(self, rhs: Self) -> Self {
+        Self::new(self.x - rhs.x, self.y - rhs.y, self.z - rhs.z)
+    }
+}
+
+impl Sub<Vec3> for DVec3 {
+    type Output = Self;
+    fn sub(self, rhs: Vec3) -> Self {
+        self - DVec3::from(rhs)
+    }
+}
+
+impl Mul<f64> for DVec3 {
+    type Output = Self;
+    fn mul(self, rhs: f64) -> Self {
+        Self::new(self.x * rhs, self.y * rhs, self.z * rhs)
+    }
+}
+
+impl Neg for DVec3 {
+    type Output = Self;
+    fn neg(self) -> Self {
+        Self::new(-self.x, -self.y, -self.z)
+    }
+}
+
+impl AddAssign for DVec3 {
+    fn add_assign(&mut self, rhs: Self) {
+        *self = *self + rhs;
+    }
+}
+
+impl AddAssign<Vec3> for DVec3 {
+    fn add_assign(&mut self, rhs: Vec3) {
+        *self = *self + rhs;
+    }
+}
+
+impl SubAssign for DVec3 {
+    fn sub_assign(&mut self, rhs: Self) {
+        *self = *self - rhs;
+    }
+}
+
+/// A transform with its rotation (and scale) in single precision and its translation in double precision, for world
+/// space transforms in double precision builds.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DMat44 {
+    /// The first three columns of the matrix.
+    pub columns: [[f32; 4]; 3],
+    pub translation: DVec3,
+}
+
+impl Default for DMat44 {
+    fn default() -> Self {
+        Self::IDENTITY
+    }
+}
+
+impl DMat44 {
+    pub const IDENTITY: Self =
+        Self { columns: [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0]], translation: DVec3::ZERO };
+
+    pub fn from_rotation_translation(rotation: Quat, translation: impl Into<DVec3>) -> Self {
+        let m = Mat44::from_rotation_translation(rotation, Vec3::ZERO);
+        Self { columns: [m.columns[0], m.columns[1], m.columns[2]], translation: translation.into() }
+    }
+
+    pub fn from_translation(translation: impl Into<DVec3>) -> Self {
+        Self::from_rotation_translation(Quat::IDENTITY, translation)
+    }
+
+    pub fn translation(&self) -> DVec3 {
+        self.translation
+    }
+
+    pub fn transform_point(&self, p: Vec3) -> DVec3 {
+        let c = &self.columns;
+        self.translation
+            + Vec3::new(
+                c[0][0] * p.x + c[1][0] * p.y + c[2][0] * p.z,
+                c[0][1] * p.x + c[1][1] * p.y + c[2][1] * p.z,
+                c[0][2] * p.x + c[1][2] * p.y + c[2][2] * p.z,
+            )
+    }
+}
+
+impl From<Mat44> for DMat44 {
+    fn from(m: Mat44) -> Self {
+        Self { columns: [m.columns[0], m.columns[1], m.columns[2]], translation: m.translation().into() }
+    }
+}
+
+/// The scalar type of world space positions: `f32`, or `f64` with the `double-precision` feature.
+#[cfg(not(feature = "double-precision"))]
+pub type Real = f32;
+/// The scalar type of world space positions: `f32`, or `f64` with the `double-precision` feature.
+#[cfg(feature = "double-precision")]
+pub type Real = f64;
+
+/// A world space position: [`Vec3`], or [`DVec3`] with the `double-precision` feature. Methods taking one also accept
+/// a `Vec3` in either build.
+#[cfg(not(feature = "double-precision"))]
+pub type RVec3 = Vec3;
+/// A world space position: [`Vec3`], or [`DVec3`] with the `double-precision` feature. Methods taking one also accept
+/// a `Vec3` in either build.
+#[cfg(feature = "double-precision")]
+pub type RVec3 = DVec3;
+
+/// A world space transform: [`Mat44`], or [`DMat44`] with the `double-precision` feature.
+#[cfg(not(feature = "double-precision"))]
+pub type RMat44 = Mat44;
+/// A world space transform: [`Mat44`], or [`DMat44`] with the `double-precision` feature.
+#[cfg(feature = "double-precision")]
+pub type RMat44 = DMat44;
+
+/// Converts anything that widens to a world space position for the C layer.
+pub(crate) fn rvec3(p: impl Into<RVec3>) -> sys::JPC_RVec3 {
+    let p: RVec3 = p.into();
+    p.into()
+}
+
 /// An axis aligned bounding box.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct AABox {
@@ -317,6 +516,31 @@ impl From<sys::JPC_Mat44> for Mat44 {
     }
 }
 
+impl From<DVec3> for sys::JPC_DVec3 {
+    fn from(v: DVec3) -> Self {
+        Self { x: v.x, y: v.y, z: v.z }
+    }
+}
+
+impl From<sys::JPC_DVec3> for DVec3 {
+    fn from(v: sys::JPC_DVec3) -> Self {
+        Self::new(v.x, v.y, v.z)
+    }
+}
+
+impl From<DMat44> for sys::JPC_DMat44 {
+    fn from(m: DMat44) -> Self {
+        let c = |c: [f32; 4]| sys::JPC_Vec4 { x: c[0], y: c[1], z: c[2], w: c[3] };
+        Self { columns: [c(m.columns[0]), c(m.columns[1]), c(m.columns[2])], translation: m.translation.into() }
+    }
+}
+
+impl From<sys::JPC_DMat44> for DMat44 {
+    fn from(m: sys::JPC_DMat44) -> Self {
+        Self { columns: m.columns.map(|c| [c.x, c.y, c.z, c.w]), translation: m.translation.into() }
+    }
+}
+
 impl From<sys::JPC_AABox> for AABox {
     fn from(b: sys::JPC_AABox) -> Self {
         Self { min: b.min.into(), max: b.max.into() }
@@ -331,7 +555,19 @@ impl From<AABox> for sys::JPC_AABox {
 
 #[cfg(feature = "glam")]
 mod glam_impls {
-    use super::{Mat44, Quat, Vec3};
+    use super::{DVec3, Mat44, Quat, Vec3};
+
+    impl From<glam::DVec3> for DVec3 {
+        fn from(v: glam::DVec3) -> Self {
+            Self::new(v.x, v.y, v.z)
+        }
+    }
+
+    impl From<DVec3> for glam::DVec3 {
+        fn from(v: DVec3) -> Self {
+            Self::new(v.x, v.y, v.z)
+        }
+    }
 
     impl From<glam::Vec3> for Vec3 {
         fn from(v: glam::Vec3) -> Self {

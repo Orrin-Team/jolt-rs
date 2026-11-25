@@ -32,10 +32,11 @@ use jolt_sys as sys;
 
 use crate::character::Deferred;
 use crate::system::SystemInner;
+use crate::math::rvec3;
 use crate::{
     AABox, Activation, BodyCreationSettings, BodyId, ConeConstraintSettings, ConstraintMut, DistanceConstraintSettings, Error,
-    FixedConstraintSettings, HingeConstraintSettings, Mat44, PhysicsSystem, PointConstraintSettings, Quat, Result, SixDofConstraintSettings,
-    SliderConstraintSettings, SwingTwistConstraintSettings, Vec3,
+    FixedConstraintSettings, HingeConstraintSettings, Mat44, PhysicsSystem, PointConstraintSettings, Quat, RVec3, Result,
+    SixDofConstraintSettings, SliderConstraintSettings, SwingTwistConstraintSettings, Vec3,
 };
 
 /// An immutable joint hierarchy, built with [`SkeletonBuilder`]. Cheap to clone.
@@ -411,32 +412,32 @@ impl Ragdoll {
     }
 
     /// Teleports every part to `matrices` (one model space matrix per joint) offset by `root_offset`.
-    pub fn set_pose(&self, system: &PhysicsSystem, root_offset: Vec3, matrices: &[Mat44]) -> Result<()> {
+    pub fn set_pose(&self, system: &PhysicsSystem, root_offset: impl Into<RVec3>, matrices: &[Mat44]) -> Result<()> {
         let m = self.matrices(matrices)?;
-        unsafe { sys::JPC_Ragdoll_SetPose(self.check(system), root_offset.into(), m.as_ptr()) };
+        unsafe { sys::JPC_Ragdoll_SetPose(self.check(system), rvec3(root_offset), m.as_ptr()) };
         Ok(())
     }
 
     /// The current pose as a root offset and one model space matrix per joint.
-    pub fn pose(&self, system: &PhysicsSystem) -> (Vec3, Vec<Mat44>) {
-        let mut root = sys::JPC_Vec3::default();
+    pub fn pose(&self, system: &PhysicsSystem) -> (RVec3, Vec<Mat44>) {
+        let mut root = sys::JPC_RVec3::default();
         let mut out = vec![sys::JPC_Mat44::default(); self.body_count()];
         unsafe { sys::JPC_Ragdoll_GetPose(self.check(system), &mut root, out.as_mut_ptr()) };
         (root.into(), out.into_iter().map(Into::into).collect())
     }
 
     /// Moves the parts towards a pose by setting their velocities, for ragdolls that follow an animation.
-    pub fn drive_to_pose_using_kinematics(&self, system: &PhysicsSystem, root_offset: Vec3, matrices: &[Mat44], delta_time: f32) -> Result<()> {
+    pub fn drive_to_pose_using_kinematics(&self, system: &PhysicsSystem, root_offset: impl Into<RVec3>, matrices: &[Mat44], delta_time: f32) -> Result<()> {
         let m = self.matrices(matrices)?;
-        unsafe { sys::JPC_Ragdoll_DriveToPoseUsingKinematics(self.check(system), root_offset.into(), m.as_ptr(), delta_time) };
+        unsafe { sys::JPC_Ragdoll_DriveToPoseUsingKinematics(self.check(system), rvec3(root_offset), m.as_ptr(), delta_time) };
         Ok(())
     }
 
     /// Sets the motors of swing-twist and hinge joints to reach a pose while staying physically simulated
     /// (active ragdolls). The joints' motor settings decide how strongly they pull.
-    pub fn drive_to_pose_using_motors(&mut self, system: &PhysicsSystem, root_offset: Vec3, matrices: &[Mat44]) -> Result<()> {
+    pub fn drive_to_pose_using_motors(&mut self, system: &PhysicsSystem, root_offset: impl Into<RVec3>, matrices: &[Mat44]) -> Result<()> {
         let m = self.matrices(matrices)?;
-        unsafe { sys::JPC_Ragdoll_DriveToPoseUsingMotors(self.check(system), root_offset.into(), m.as_ptr()) };
+        unsafe { sys::JPC_Ragdoll_DriveToPoseUsingMotors(self.check(system), rvec3(root_offset), m.as_ptr()) };
         Ok(())
     }
 
@@ -459,8 +460,8 @@ impl Ragdoll {
     }
 
     /// Position and rotation of the root part.
-    pub fn root_transform(&self, system: &PhysicsSystem) -> (Vec3, Quat) {
-        let mut position = sys::JPC_Vec3::default();
+    pub fn root_transform(&self, system: &PhysicsSystem) -> (RVec3, Quat) {
+        let mut position = sys::JPC_RVec3::default();
         let mut rotation = sys::JPC_Quat::default();
         unsafe { sys::JPC_Ragdoll_GetRootTransform(self.check(system), &mut position, &mut rotation) };
         (position.into(), rotation.into())

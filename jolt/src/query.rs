@@ -4,7 +4,8 @@ use std::ops::ControlFlow;
 use jolt_sys as sys;
 
 use crate::listener::PanicSlot;
-use crate::{AABox, BodyId, Mat44, ObjectLayer, PhysicsMaterial, PhysicsSystem, Shape, SubShapeId, Vec3};
+use crate::math::rvec3;
+use crate::{AABox, BodyId, Mat44, ObjectLayer, PhysicsMaterial, PhysicsSystem, RMat44, RVec3, Shape, SubShapeId, Vec3};
 
 /// Restricts which bodies a query can hit. The default hits everything.
 #[derive(Clone, Copy, Default)]
@@ -214,7 +215,7 @@ pub struct RayCastHit {
     pub sub_shape_id: SubShapeId,
     /// Hit point = origin + fraction * direction.
     pub fraction: f32,
-    pub point: Vec3,
+    pub point: RVec3,
     /// Surface normal at the hit point.
     pub normal: Vec3,
     /// `None` for the default material.
@@ -246,8 +247,10 @@ pub struct ShapeHit {
     pub body_id: BodyId,
     pub sub_shape_id1: SubShapeId,
     pub sub_shape_id2: SubShapeId,
-    pub contact_point_on1: Vec3,
-    pub contact_point_on2: Vec3,
+    /// World space.
+    pub contact_point_on1: RVec3,
+    /// World space.
+    pub contact_point_on2: RVec3,
     /// Direction to move the hit body out of collision. Its length is meaningless.
     pub penetration_axis: Vec3,
     pub penetration_depth: f32,
@@ -257,9 +260,9 @@ pub struct ShapeHit {
     /// Material of the hit body at `sub_shape_id2`, `None` for the default material.
     pub material: Option<PhysicsMaterial>,
     /// With `collect_faces` on: the touching face of the query shape, in world space. Empty otherwise.
-    pub face1: Vec<Vec3>,
+    pub face1: Vec<RVec3>,
     /// With `collect_faces` on: the touching face of the hit shape, in world space. Empty otherwise.
-    pub face2: Vec<Vec3>,
+    pub face2: Vec<RVec3>,
 }
 
 impl ShapeHit {
@@ -288,7 +291,7 @@ impl From<&sys::JPC_ShapeHit> for ShapeHit {
     }
 }
 
-fn face(points: *const sys::JPC_Vec3, count: u32) -> Vec<Vec3> {
+pub(crate) fn face(points: *const sys::JPC_RVec3, count: u32) -> Vec<RVec3> {
     if points.is_null() || count == 0 {
         return Vec::new();
     }
@@ -378,11 +381,11 @@ unsafe extern "C" fn shape_trampoline(user_data: *mut c_void, hit: *const sys::J
 
 impl PhysicsSystem {
     /// Closest hit along `direction` (whose length is the ray length).
-    pub fn cast_ray(&self, origin: Vec3, direction: Vec3, filter: &QueryFilter<'_>) -> Option<RayCastHit> {
+    pub fn cast_ray(&self, origin: impl Into<RVec3>, direction: Vec3, filter: &QueryFilter<'_>) -> Option<RayCastHit> {
         let mut ctx = QueryContext::new(filter, ());
         let sys_filter = QueryContext::sys_filter(&mut ctx);
         let mut hit = sys::JPC_RayCastHit::default();
-        let found = unsafe { sys::JPC_PhysicsSystem_CastRay(self.raw(), origin.into(), direction.into(), &sys_filter, &mut hit) };
+        let found = unsafe { sys::JPC_PhysicsSystem_CastRay(self.raw(), rvec3(origin), direction.into(), &sys_filter, &mut hit) };
         ctx.finish();
         // The material of the closest hit comes back as an owned reference.
         found.then(|| {
@@ -394,7 +397,7 @@ impl PhysicsSystem {
 
     /// Calls `collector` for every hit, in no particular order, until it returns `ControlFlow::Break`. Hits are
     /// delivered after the query finished, so the collector may use the body interface.
-    pub fn cast_ray_all<F>(&self, origin: Vec3, direction: Vec3, settings: &RayCastSettings, filter: &QueryFilter<'_>, collector: F)
+    pub fn cast_ray_all<F>(&self, origin: impl Into<RVec3>, direction: Vec3, settings: &RayCastSettings, filter: &QueryFilter<'_>, collector: F)
     where
         F: FnMut(&RayCastHit) -> ControlFlow<()>,
     {
@@ -405,7 +408,7 @@ impl PhysicsSystem {
         unsafe {
             sys::JPC_PhysicsSystem_CastRayAll(
                 self.raw(),
-                origin.into(),
+                rvec3(origin),
                 direction.into(),
                 &raw_settings,
                 &sys_filter,
@@ -419,7 +422,7 @@ impl PhysicsSystem {
     }
 
     /// Bodies containing `point`.
-    pub fn collide_point<F>(&self, point: Vec3, filter: &QueryFilter<'_>, collector: F)
+    pub fn collide_point<F>(&self, point: impl Into<RVec3>, filter: &QueryFilter<'_>, collector: F)
     where
         F: FnMut(&PointHit) -> ControlFlow<()>,
     {
@@ -427,7 +430,7 @@ impl PhysicsSystem {
         let ctx_ptr: *mut QueryContext<'_, _> = &mut ctx;
         let sys_filter = QueryContext::sys_filter(ctx_ptr);
         unsafe {
-            sys::JPC_PhysicsSystem_CollidePoint(self.raw(), point.into(), &sys_filter, Some(point_trampoline), ctx_ptr.cast())
+            sys::JPC_PhysicsSystem_CollidePoint(self.raw(), rvec3(point), &sys_filter, Some(point_trampoline), ctx_ptr.cast())
         };
         let hits = std::mem::take(&mut ctx.collector);
         ctx.finish();
@@ -440,7 +443,7 @@ impl PhysicsSystem {
         &self,
         shape: &Shape,
         scale: Vec3,
-        center_of_mass_transform: &Mat44,
+        center_of_mass_transform: &RMat44,
         max_separation_distance: f32,
         filter: &QueryFilter<'_>,
         collector: F,
@@ -456,14 +459,14 @@ impl PhysicsSystem {
         &self,
         shape: &Shape,
         scale: Vec3,
-        center_of_mass_transform: &Mat44,
+        center_of_mass_transform: &RMat44,
         settings: &CollideShapeSettings,
         filter: &QueryFilter<'_>,
         collector: F,
     ) where
         F: FnMut(&ShapeHit) -> ControlFlow<()>,
     {
-        let transform: sys::JPC_Mat44 = (*center_of_mass_transform).into();
+        let transform: sys::JPC_RMat44 = (*center_of_mass_transform).into();
         let raw_settings = settings.to_sys();
         let mut ctx = QueryContext::new(filter, Vec::new());
         let ctx_ptr: *mut QueryContext<'_, _> = &mut ctx;
@@ -490,7 +493,7 @@ impl PhysicsSystem {
         &self,
         shape: &Shape,
         scale: Vec3,
-        center_of_mass_transform: &Mat44,
+        center_of_mass_transform: &RMat44,
         direction: Vec3,
         filter: &QueryFilter<'_>,
         collector: F,
@@ -506,7 +509,7 @@ impl PhysicsSystem {
         &self,
         shape: &Shape,
         scale: Vec3,
-        center_of_mass_transform: &Mat44,
+        center_of_mass_transform: &RMat44,
         direction: Vec3,
         settings: &ShapeCastSettings,
         filter: &QueryFilter<'_>,
@@ -514,7 +517,7 @@ impl PhysicsSystem {
     ) where
         F: FnMut(&ShapeHit) -> ControlFlow<()>,
     {
-        let transform: sys::JPC_Mat44 = (*center_of_mass_transform).into();
+        let transform: sys::JPC_RMat44 = (*center_of_mass_transform).into();
         let raw_settings = settings.to_sys();
         let mut ctx = QueryContext::new(filter, Vec::new());
         let ctx_ptr: *mut QueryContext<'_, _> = &mut ctx;
@@ -540,7 +543,7 @@ impl PhysicsSystem {
     /// Closest hit with explicit back face and solidity settings.
     pub fn cast_ray_with_settings(
         &self,
-        origin: Vec3,
+        origin: impl Into<RVec3>,
         direction: Vec3,
         settings: &RayCastSettings,
         filter: &QueryFilter<'_>,
@@ -550,7 +553,7 @@ impl PhysicsSystem {
         let sys_filter = QueryContext::sys_filter(&mut ctx);
         let mut hit = sys::JPC_RayCastHit::default();
         let found = unsafe {
-            sys::JPC_PhysicsSystem_CastRayWithSettings(self.raw(), origin.into(), direction.into(), &raw_settings, &sys_filter, &mut hit)
+            sys::JPC_PhysicsSystem_CastRayWithSettings(self.raw(), rvec3(origin), direction.into(), &raw_settings, &sys_filter, &mut hit)
         };
         ctx.finish();
         found.then(|| {
@@ -656,7 +659,7 @@ impl PhysicsSystem {
         &self,
         shape: &Shape,
         scale: Vec3,
-        center_of_mass_transform: &Mat44,
+        center_of_mass_transform: &RMat44,
         direction: Vec3,
         filter: &QueryFilter<'_>,
     ) -> Option<ShapeHit> {

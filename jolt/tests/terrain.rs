@@ -157,11 +157,11 @@ fn queries_against_a_single_shape() {
     assert!(sphere.contains_point(&big, Vec3::new(0.0, 2.5, 5.0)));
 
     let cube = Shape::cuboid(Vec3::splat(0.5)).unwrap();
-    let overlapping = Mat44::from_translation(Vec3::new(0.0, 0.0, 6.2));
+    let overlapping = RMat44::from_translation(Vec3::new(0.0, 0.0, 6.2));
     let hits = sphere.collide_shape(&at, &cube, Vec3::splat(1.0), &overlapping, &CollideShapeSettings::default());
     assert_eq!(hits.len(), 1);
     assert!(hits[0].penetration_depth > 0.1, "{:?}", hits[0]);
-    let apart = Mat44::from_translation(Vec3::new(0.0, 0.0, 9.0));
+    let apart = RMat44::from_translation(Vec3::new(0.0, 0.0, 9.0));
     assert!(sphere.collide_shape(&at, &cube, Vec3::splat(1.0), &apart, &CollideShapeSettings::default()).is_empty());
     let swept = sphere.cast_shape(&at, &cube, Vec3::splat(1.0), &apart, Vec3::new(0.0, 0.0, -6.0), &ShapeCastSettings::default());
     assert_eq!(swept.len(), 1);

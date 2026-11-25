@@ -220,7 +220,7 @@ fn point_and_shape_queries() {
 
     let probe = Shape::sphere(0.5).unwrap();
     let mut overlaps = Vec::new();
-    s.collide_shape(&probe, Vec3::ONE, &Mat44::from_translation(Vec3::new(0.0, 3.8, 0.0)), 0.0, &QueryFilter::new(), |h| {
+    s.collide_shape(&probe, Vec3::ONE, &RMat44::from_translation(Vec3::new(0.0, 3.8, 0.0)), 0.0, &QueryFilter::new(), |h| {
         overlaps.push(h.clone());
         ControlFlow::Continue(())
     });
@@ -229,7 +229,7 @@ fn point_and_shape_queries() {
     assert!((overlaps[0].penetration_depth - 0.3).abs() < 0.01, "{:?}", overlaps[0]);
 
     // Sweep the probe down from above the ball: it should stop 1.5 above the ball's center.
-    let start = Mat44::from_translation(Vec3::new(0.0, 10.0, 0.0));
+    let start = RMat44::from_translation(Vec3::new(0.0, 10.0, 0.0));
     let hit = s.cast_shape_closest(&probe, Vec3::ONE, &start, Vec3::new(0.0, -10.0, 0.0), &QueryFilter::new()).unwrap();
     assert_eq!(hit.body_id, ball);
     assert!((10.0 - 10.0 * hit.fraction - 6.5).abs() < 0.01, "{hit:?}");
@@ -324,7 +324,7 @@ fn misuse_does_not_crash() {
     world.system.destroy_body(ball);
     let bi = world.system.body_interface();
     assert!(!bi.is_added(ball));
-    assert_eq!(bi.position(ball), Vec3::ZERO);
+    assert_eq!(bi.position(ball), RVec3::ZERO);
     bi.set_position(ball, Vec3::ONE, Activation::Activate);
     bi.add_body(ball, Activation::Activate);
     world.system.destroy_body(ball);

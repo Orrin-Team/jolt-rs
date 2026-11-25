@@ -80,6 +80,35 @@ const _: () = {
     ["Offset of field: JPC_AABox::min"][::core::mem::offset_of!(JPC_AABox, min) - 0usize];
     ["Offset of field: JPC_AABox::max"][::core::mem::offset_of!(JPC_AABox, max) - 12usize];
 };
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone)]
+pub struct JPC_DVec3 {
+    pub x: f64,
+    pub y: f64,
+    pub z: f64,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of JPC_DVec3"][::core::mem::size_of::<JPC_DVec3>() - 24usize];
+    ["Alignment of JPC_DVec3"][::core::mem::align_of::<JPC_DVec3>() - 8usize];
+    ["Offset of field: JPC_DVec3::x"][::core::mem::offset_of!(JPC_DVec3, x) - 0usize];
+    ["Offset of field: JPC_DVec3::y"][::core::mem::offset_of!(JPC_DVec3, y) - 8usize];
+    ["Offset of field: JPC_DVec3::z"][::core::mem::offset_of!(JPC_DVec3, z) - 16usize];
+};
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone)]
+pub struct JPC_DMat44 {
+    pub columns: [JPC_Vec4; 3usize],
+    pub translation: JPC_DVec3,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of JPC_DMat44"][::core::mem::size_of::<JPC_DMat44>() - 72usize];
+    ["Alignment of JPC_DMat44"][::core::mem::align_of::<JPC_DMat44>() - 8usize];
+    ["Offset of field: JPC_DMat44::columns"][::core::mem::offset_of!(JPC_DMat44, columns) - 0usize];
+    ["Offset of field: JPC_DMat44::translation"]
+        [::core::mem::offset_of!(JPC_DMat44, translation) - 48usize];
+};
 pub type JPC_RVec3 = JPC_Vec3;
 pub type JPC_RMat44 = JPC_Mat44;
 #[repr(C)]
@@ -370,6 +399,9 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn JPC_SetAssertFailedHandler(handler: JPC_AssertFailedFn);
+}
+unsafe extern "C" {
+    pub fn JPC_IsDoublePrecision() -> bool;
 }
 unsafe extern "C" {
     pub fn JPC_GetLastError() -> *const ::core::ffi::c_char;
@@ -2401,7 +2433,7 @@ unsafe extern "C" {
 #[repr(C)]
 #[derive(Debug, Default, Copy, Clone)]
 pub struct JPC_SoftBodyVertexState {
-    pub position: JPC_Vec3,
+    pub position: JPC_RVec3,
     pub velocity: JPC_Vec3,
     pub inv_mass: f32,
 }
@@ -2510,7 +2542,7 @@ unsafe extern "C" {
     pub fn JPC_BodyInterface_SkinSoftBody(
         bi: *mut JPC_BodyInterface,
         id: JPC_BodyID,
-        joint_matrices: *const JPC_Mat44,
+        joint_matrices: *const JPC_RMat44,
         num_joints: u32,
         hard_skin_all: bool,
         temp_allocator: *mut JPC_TempAllocator,
@@ -3004,9 +3036,9 @@ pub struct JPC_ShapeHit {
     pub fraction: f32,
     pub is_back_face_hit: bool,
     pub material: *const JPC_PhysicsMaterial,
-    pub face1: *const JPC_Vec3,
+    pub face1: *const JPC_RVec3,
     pub num_face1: u32,
-    pub face2: *const JPC_Vec3,
+    pub face2: *const JPC_RVec3,
     pub num_face2: u32,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -3500,7 +3532,7 @@ unsafe extern "C" {
 pub type JPC_TriangleCollectorFn = ::core::option::Option<
     unsafe extern "C" fn(
         user_data: *mut ::core::ffi::c_void,
-        vertices: *const JPC_Vec3,
+        vertices: *const JPC_RVec3,
         materials: *const *const JPC_PhysicsMaterial,
         count: u32,
     ) -> bool,

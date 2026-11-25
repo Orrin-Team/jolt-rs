@@ -513,7 +513,7 @@ uint32_t JPC_BodyInterface_GetSoftBodyVertices(const JPC_BodyInterface *bi, JPC_
 	if (mp == nullptr)
 		return 0;
 	const Array<SoftBodyVertex> &vertices = mp->GetVertices();
-	Mat44 transform = world_space ? lock.GetBody().GetCenterOfMassTransform() : Mat44::sIdentity();
+	RMat44 transform = world_space ? lock.GetBody().GetCenterOfMassTransform() : RMat44::sIdentity();
 	for (uint64 i = first, o = 0; i < vertices.size() && o < capacity; ++i, ++o)
 	{
 		const SoftBodyVertex &v = vertices[size_t(i)];
@@ -547,13 +547,14 @@ bool JPC_BodyInterface_SetSoftBodyVertices(JPC_BodyInterface *bi, JPC_BodyID id,
 				return false;
 			}
 
-		Mat44 transform = world_space ? lock.GetBody().GetInverseCenterOfMassTransform() : Mat44::sIdentity();
+		RMat44 transform = world_space ? lock.GetBody().GetInverseCenterOfMassTransform() : RMat44::sIdentity();
 		bool mass_changed = false;
 		for (uint32_t i = 0; i < count; ++i)
 		{
 			const JPC_SoftBodyVertexState &in = vertices[i];
 			SoftBodyVertex &v = out[first + i];
-			v.mPosition = transform * ToJph(in.position);
+			// Relative to the center of mass, so small enough for single precision
+			v.mPosition = Vec3(transform * ToJph(in.position));
 			v.mVelocity = transform.Multiply3x3(ToJph(in.velocity));
 			mass_changed |= v.mInvMass != in.inv_mass;
 			v.mInvMass = in.inv_mass;
@@ -619,7 +620,7 @@ uint32_t JPC_BodyInterface_GetSoftBodyRods(const JPC_BodyInterface *bi, JPC_Body
 	return num_rods;
 }
 
-bool JPC_BodyInterface_SkinSoftBody(JPC_BodyInterface *bi, JPC_BodyID id, const JPC_Mat44 *joint_matrices, uint32_t num_joints, bool hard_skin_all,
+bool JPC_BodyInterface_SkinSoftBody(JPC_BodyInterface *bi, JPC_BodyID id, const JPC_RMat44 *joint_matrices, uint32_t num_joints, bool hard_skin_all,
 									JPC_TempAllocator *temp_allocator)
 {
 	BodyLockWrite lock(*bi->mLockInterface, ToJph(id));
@@ -636,11 +637,11 @@ bool JPC_BodyInterface_SkinSoftBody(JPC_BodyInterface *bi, JPC_BodyID id, const 
 	}
 	// Jolt wants the joints relative to the body's center of mass
 	RMat44 com = lock.GetBody().GetCenterOfMassTransform();
-	Mat44 to_local = com.InversedRotationTranslation();
+	RMat44 to_local = com.InversedRotationTranslation();
 	Array<Mat44> joints;
 	joints.reserve(num_joints);
 	for (uint32_t i = 0; i < num_joints; ++i)
-		joints.push_back(to_local * ToJph(joint_matrices[i]));
+		joints.push_back((to_local * ToJph(joint_matrices[i])).ToMat44());
 	mp->SkinVertices(com, joints.data(), num_joints, hard_skin_all, ToJphRef(temp_allocator));
 	return true;
 }

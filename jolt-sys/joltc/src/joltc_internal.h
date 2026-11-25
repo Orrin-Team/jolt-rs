@@ -68,8 +68,8 @@
 #include <shared_mutex>
 #include <string>
 
-#ifdef JPH_DOUBLE_PRECISION
-#error "joltc currently only supports single precision builds of Jolt"
+#if defined(JPH_DOUBLE_PRECISION) != defined(JPC_DOUBLE_PRECISION)
+#error "Define JPC_DOUBLE_PRECISION exactly when Jolt is built with JPH_DOUBLE_PRECISION"
 #endif
 
 using namespace JPH;
@@ -95,6 +95,10 @@ inline JPC_Vec3 ToC(Vec3Arg v) { return { v.GetX(), v.GetY(), v.GetZ() }; }
 inline JPC_Quat ToC(QuatArg q) { return { q.GetX(), q.GetY(), q.GetZ(), q.GetW() }; }
 inline JPC_Vec4 ToC(Vec4Arg v) { return { v.GetX(), v.GetY(), v.GetZ(), v.GetW() }; }
 inline JPC_Mat44 ToC(Mat44Arg m) { return { { ToC(m.GetColumn4(0)), ToC(m.GetColumn4(1)), ToC(m.GetColumn4(2)), ToC(m.GetColumn4(3)) } }; }
+inline DVec3 ToJph(JPC_DVec3 v) { return DVec3(v.x, v.y, v.z); }
+inline JPC_DVec3 ToC(DVec3Arg v) { return { v.GetX(), v.GetY(), v.GetZ() }; }
+inline DMat44 ToJph(const JPC_DMat44 &m) { return DMat44(ToJph(m.columns[0]), ToJph(m.columns[1]), ToJph(m.columns[2]), ToJph(m.translation)); }
+inline JPC_DMat44 ToC(DMat44Arg m) { return { { ToC(m.GetColumn4(0)), ToC(m.GetColumn4(1)), ToC(m.GetColumn4(2)) }, ToC(m.GetTranslation()) }; }
 inline JPC_BodyID ToC(const BodyID &id) { return id.GetIndexAndSequenceNumber(); }
 inline JPC_SubShapeID ToC(const SubShapeID &id) { return id.GetValue(); }
 inline JPC_AABox ToC(const AABox &b) { return { ToC(b.mMin), ToC(b.mMax) }; }

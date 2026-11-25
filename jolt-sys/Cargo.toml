@@ -29,6 +29,8 @@ name = "jolt_sys"
 asserts = []
 # Compile Jolt's debug renderer in, to draw bodies and constraints (slightly slower and larger).
 debug-renderer = []
+# World space positions and transforms in double precision, for very large worlds (slower, more memory).
+double-precision = []
 # Make simulation results identical across platforms and compilers (slower).
 cross-platform-deterministic = []
 # Regenerate the bindings with bindgen (needs libclang). Set JOLT_SYS_UPDATE_BINDINGS=1 to write them to src/bindings.rs.

@@ -31,6 +31,13 @@
 //! }
 //! assert!((system.body_interface().position(ball).y - 0.5).abs() < 0.05);
 //! ```
+//!
+//! # Precision
+//!
+//! With the `double-precision` feature, Jolt keeps world space positions in `f64`, for worlds that extend thousands of
+//! kilometers from the origin. World space positions and transforms use [`RVec3`] and [`RMat44`] ([`Vec3`] and
+//! [`Mat44`] by default, [`DVec3`] and [`DMat44`] in double precision); everything else, such as velocities, offsets
+//! and shapes, stays in `f32`. Methods that take a position accept a [`Vec3`] in either build.
 
 pub mod animation;
 mod body;
@@ -90,7 +97,7 @@ pub use vehicle::{
     VehicleDifferentialSettings, VehicleEngineSettings, VehicleKind, VehicleMut, VehicleTrackSettings, VehicleTransmissionSettings,
     WheelSettings, WheelState, WheeledVehicleSettings,
 };
-pub use math::{AABox, Mat44, Quat, Vec3};
+pub use math::{AABox, DMat44, DVec3, Mat44, Quat, RMat44, RVec3, Real, Vec3};
 pub use query::{
     ActiveEdgeMode, BackFaceMode, BroadPhaseCastHit, CollideShapeSettings, PointHit, QueryFilter, RayCastHit, RayCastSettings, ShapeCastSettings,
     ShapeHit,
@@ -111,9 +118,16 @@ pub fn init() {
     ensure_init();
 }
 
+/// Whether world space positions are `f64` (the `double-precision` feature).
+pub const fn is_double_precision() -> bool {
+    cfg!(feature = "double-precision")
+}
+
 pub(crate) fn ensure_init() {
     static INIT: Once = Once::new();
     INIT.call_once(|| unsafe {
+        // Every world space type changes layout with the precision, so a mismatched joltc would be undefined behavior.
+        assert_eq!(sys::JPC_IsDoublePrecision(), cfg!(feature = "double-precision"), "joltc was built with a different precision");
         sys::JPC_Init();
         sys::JPC_SetTraceHandler(Some(trace_trampoline));
     });

@@ -5,8 +5,10 @@ use std::ptr::NonNull;
 
 use jolt_sys as sys;
 
+use crate::math::rvec3;
 use crate::{
-    AABox, CollideShapeSettings, Error, Mat44, PhysicsMaterial, Quat, RayCastHit, RayCastSettings, Result, ShapeCastSettings, ShapeHit, SubShapeId, Vec3,
+    AABox, CollideShapeSettings, Error, Mat44, PhysicsMaterial, Quat, RMat44, RVec3, RayCastHit, RayCastSettings, Result, ShapeCastSettings, ShapeHit,
+    SubShapeId, Vec3,
 };
 
 /// Default convex radius Jolt uses to round off the corners of boxes and cylinders.
@@ -474,7 +476,8 @@ impl Shape {
 /// A triangle from [`Shape::triangles`].
 #[derive(Clone, Debug, PartialEq)]
 pub struct ShapeTriangle {
-    pub vertices: [Vec3; 3],
+    /// World space.
+    pub vertices: [RVec3; 3],
     /// `None` for the default material.
     pub material: Option<PhysicsMaterial>,
 }
@@ -483,14 +486,14 @@ pub struct ShapeTriangle {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ShapePlacement {
     /// Position of the shape's center of mass.
-    pub position: Vec3,
+    pub position: RVec3,
     pub rotation: Quat,
     pub scale: Vec3,
 }
 
 impl ShapePlacement {
-    pub fn new(position: Vec3, rotation: Quat) -> Self {
-        Self { position, rotation, scale: Vec3::splat(1.0) }
+    pub fn new(position: impl Into<RVec3>, rotation: Quat) -> Self {
+        Self { position: position.into(), rotation, scale: Vec3::splat(1.0) }
     }
 }
 
@@ -512,7 +515,7 @@ impl Shape {
     pub fn triangles(&self, placement: &ShapePlacement, bounds: Option<AABox>) -> Vec<ShapeTriangle> {
         unsafe extern "C" fn collect(
             user_data: *mut c_void,
-            vertices: *const sys::JPC_Vec3,
+            vertices: *const sys::JPC_RVec3,
             materials: *const *const sys::JPC_PhysicsMaterial,
             count: u32,
         ) -> bool {
@@ -543,7 +546,7 @@ impl Shape {
 
     /// Casts a ray (`direction` includes its length) against this shape alone, without a physics system. The hit's
     /// body is [`BodyId::INVALID`](crate::BodyId::INVALID).
-    pub fn cast_ray(&self, placement: &ShapePlacement, origin: Vec3, direction: Vec3, settings: &RayCastSettings) -> Option<RayCastHit> {
+    pub fn cast_ray(&self, placement: &ShapePlacement, origin: impl Into<RVec3>, direction: Vec3, settings: &RayCastSettings) -> Option<RayCastHit> {
         let raw_settings = settings.to_sys();
         let mut hit = sys::JPC_RayCastHit::default();
         let found = unsafe {
@@ -552,7 +555,7 @@ impl Shape {
                 placement.position.into(),
                 placement.rotation.into(),
                 placement.scale.into(),
-                origin.into(),
+                rvec3(origin),
                 direction.into(),
                 &raw_settings,
                 &mut hit,
@@ -571,8 +574,8 @@ impl Shape {
     }
 
     /// Whether `point` is inside this shape as placed.
-    pub fn contains_point(&self, placement: &ShapePlacement, point: Vec3) -> bool {
-        unsafe { sys::JPC_Shape_ContainsPoint(self.as_raw(), placement.position.into(), placement.rotation.into(), placement.scale.into(), point.into()) }
+    pub fn contains_point(&self, placement: &ShapePlacement, point: impl Into<RVec3>) -> bool {
+        unsafe { sys::JPC_Shape_ContainsPoint(self.as_raw(), placement.position.into(), placement.rotation.into(), placement.scale.into(), rvec3(point)) }
     }
 
     /// Where `query` (scaled, with its center of mass at `query_transform`) overlaps this shape as placed. Shape 1 of
@@ -582,10 +585,10 @@ impl Shape {
         placement: &ShapePlacement,
         query: &Shape,
         query_scale: Vec3,
-        query_transform: &Mat44,
+        query_transform: &RMat44,
         settings: &CollideShapeSettings,
     ) -> Vec<ShapeHit> {
-        let transform: sys::JPC_Mat44 = (*query_transform).into();
+        let transform: sys::JPC_RMat44 = (*query_transform).into();
         let raw_settings = settings.to_sys();
         let mut hits: Vec<ShapeHit> = Vec::new();
         unsafe {
@@ -612,11 +615,11 @@ impl Shape {
         placement: &ShapePlacement,
         query: &Shape,
         query_scale: Vec3,
-        query_transform: &Mat44,
+        query_transform: &RMat44,
         direction: Vec3,
         settings: &ShapeCastSettings,
     ) -> Vec<ShapeHit> {
-        let transform: sys::JPC_Mat44 = (*query_transform).into();
+        let transform: sys::JPC_RMat44 = (*query_transform).into();
         let raw_settings = settings.to_sys();
         let mut hits: Vec<ShapeHit> = Vec::new();
         unsafe {

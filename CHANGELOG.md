@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Double precision** behind the `double-precision` feature: Jolt keeps world space positions in `f64`. `RVec3`,
+  `RMat44` and `Real` follow the feature (`Vec3`, `Mat44`, `f32` by default; `DVec3`, `DMat44`, `f64` with it). Methods
+  that take a world space position accept `impl Into<RVec3>`, so a `Vec3` works in either build. Query hits, contact
+  manifolds, collected faces, triangulated shapes and soft body vertices come back in full precision. joltc gains
+  `JPC_DVec3`, `JPC_DMat44`, `JPC_RVec3`, `JPC_RMat44` and `JPC_IsDoublePrecision`, switched by `JPC_DOUBLE_PRECISION`
+  (CMake option `DOUBLE_PRECISION`).
+- `is_double_precision()`.
+
+### Changed
+
+- World space positions and transforms in the API are typed `RVec3`/`RMat44`, which are `Vec3`/`Mat44` without the new
+  feature, so single precision code is unaffected. `DebugDraw` methods take `RVec3`. Methods taking a position take
+  `impl Into<RVec3>`, which can need a type annotation where a bare `.into()` was passed before.
+- Collision query results from the system now use the query's own position as base offset instead of the origin, so
+  hits keep their precision far from the origin.
+
 ## 0.2.0
 
 Built on Jolt Physics 5.7.0 plus upstream fixes up to `78f09c1c`, which include a fix for 5.7.0's job system running out of
