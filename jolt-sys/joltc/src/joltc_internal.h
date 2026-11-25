@@ -57,6 +57,8 @@
 #include <Jolt/Physics/Constraints/SwingTwistConstraint.h>
 #include <Jolt/Physics/PhysicsStepListener.h>
 #include <Jolt/Physics/Vehicle/VehicleConstraint.h>
+#include <Jolt/Physics/SoftBody/SoftBodyContactListener.h>
+#include <Jolt/Physics/SoftBody/SoftBodyManifold.h>
 
 #include <atomic>
 
@@ -385,6 +387,50 @@ public:
 	}
 };
 
+class SoftBodyContactListenerBridge final : public SoftBodyContactListener
+{
+public:
+	JPC_SoftBodyContactListenerFns mFns { };
+	void *					mUserData = nullptr;
+
+	virtual SoftBodyValidateResult OnSoftBodyContactValidate(const Body &inSoftBody, const Body &inOtherBody, SoftBodyContactSettings &ioSettings) override
+	{
+		if (mFns.on_soft_body_contact_validate == nullptr)
+			return SoftBodyValidateResult::AcceptContact;
+		JPC_SoftBodyContactSettings settings { ioSettings.mInvMassScale1, ioSettings.mInvMassScale2, ioSettings.mInvInertiaScale2, ioSettings.mIsSensor };
+		bool accept = mFns.on_soft_body_contact_validate(mUserData, ToC(&inSoftBody), ToC(&inOtherBody), &settings);
+		ioSettings.mInvMassScale1 = settings.inv_mass_scale1;
+		ioSettings.mInvMassScale2 = settings.inv_mass_scale2;
+		ioSettings.mInvInertiaScale2 = settings.inv_inertia_scale2;
+		ioSettings.mIsSensor = settings.is_sensor;
+		return accept ? SoftBodyValidateResult::AcceptContact : SoftBodyValidateResult::RejectContact;
+	}
+
+	virtual void			OnSoftBodyContactAdded(const Body &inSoftBody, const SoftBodyManifold &inManifold) override
+	{
+		if (mFns.on_soft_body_contact_added == nullptr)
+			return;
+		// Soft bodies are updated in parallel, so each thread converts into its own buffers
+		static thread_local Array<JPC_SoftBodyVertexContact> contacts;
+		static thread_local Array<JPC_BodyID> sensors;
+		contacts.clear();
+		sensors.clear();
+		RMat44 com = inSoftBody.GetCenterOfMassTransform();
+		const Array<SoftBodyVertex> &vertices = inManifold.GetVertices();
+		for (size_t i = 0; i < vertices.size(); ++i)
+		{
+			const SoftBodyVertex &v = vertices[i];
+			if (inManifold.HasContact(v))
+				contacts.push_back({ uint32_t(i), ToC(inManifold.GetContactBodyID(v)), ToC(com * inManifold.GetLocalContactPoint(v)),
+									 ToC(com.Multiply3x3(inManifold.GetContactNormal(v))) });
+		}
+		for (uint i = 0; i < inManifold.GetNumSensorContacts(); ++i)
+			sensors.push_back(ToC(inManifold.GetSensorContactBodyID(i)));
+		JPC_SoftBodyManifold manifold { contacts.data(), uint32_t(contacts.size()), sensors.data(), uint32_t(sensors.size()) };
+		mFns.on_soft_body_contact_added(mUserData, ToC(&inSoftBody), &manifold);
+	}
+};
+
 // Jolt may run separate step listeners in parallel, so a Rust listener could race a vehicle touching the same
 // bodies. Every listener and vehicle of a system therefore runs from this single listener, one after another.
 class CombinedStepListener final : public PhysicsStepListener
@@ -436,6 +482,7 @@ struct JPC_PhysicsSystem
 	std::unique_ptr<ObjectVsBroadPhaseLayerFilterTable> mObjectVsBroadPhaseLayerFilter;
 	ContactListenerBridge				mContactListener;
 	BodyActivationListenerBridge		mActivationListener;
+	SoftBodyContactListenerBridge		mSoftBodyContactListener;
 	PhysicsSystem						mSystem;
 	JPC_BodyInterface					mBodyInterface;
 	JPC_BodyInterface					mBodyInterfaceNoLock;

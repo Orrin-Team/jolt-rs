@@ -143,6 +143,13 @@ impl Shape {
         Self::from_raw_or_error(unsafe { sys::JPC_CylinderShape_Create(half_height, radius, convex_radius) })
     }
 
+    /// A single triangle; ray casts hit its front (counter-clockwise) side and `convex_radius` rounds it off. It has
+    /// no volume or mass, so use it for static or kinematic bodies.
+    pub fn triangle(v1: Vec3, v2: Vec3, v3: Vec3, convex_radius: f32) -> Result<Self> {
+        crate::ensure_init();
+        Self::from_raw_or_error(unsafe { sys::JPC_TriangleShape_Create(v1.into(), v2.into(), v3.into(), convex_radius) })
+    }
+
     pub fn tapered_cylinder(half_height: f32, top_radius: f32, bottom_radius: f32, convex_radius: f32) -> Result<Self> {
         crate::ensure_init();
         Self::from_raw_or_error(unsafe {

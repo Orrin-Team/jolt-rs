@@ -46,7 +46,7 @@ system.update(1.0 / 60.0, 1, &mut temp, &jobs)?;
 
 | Area | Status |
 |---|---|
-| Shapes | ✅ sphere, box, capsule, tapered capsule, cylinder, tapered cylinder, convex hull, mesh, height field, plane, empty, static and mutable compound (editable in place, also on live bodies), rotated/translated, scaled, offset COM, compound child lookup from hits, binary serialization |
+| Shapes | ✅ sphere, box, capsule, tapered capsule, cylinder, tapered cylinder, triangle, convex hull, mesh, height field, plane, empty, static and mutable compound (editable in place, also on live bodies), rotated/translated, scaled, offset COM, compound child lookup from hits, binary serialization |
 | Bodies | ✅ creation settings, add/remove/destroy (single and batch), transforms, velocities, forces, impulses, buoyancy, kinematics, motion type/quality, material properties, collision groups, bounds, mass, user data |
 | Queries | ✅ ray (closest/all), point, collide shape, cast shape, broad phase (box, sphere, point, oriented box, ray, box cast), back face / active edge / tolerance settings, collected faces, layer and body filters |
 | Constraints | ✅ fixed, point, distance, hinge, slider, cone, swing-twist, six-DOF, gear, rack-and-pinion, pulley, path (Hermite), motors and limits |
@@ -54,9 +54,9 @@ system.update(1.0 / 60.0, 1, &mut temp, &jobs)?;
 | Ragdolls | ✅ skeletons (joint hierarchy, local ↔ model space poses), ragdoll settings (any supported joint type, stabilisation, parent-child collision filtering), ragdolls (pose, kinematic and motor driving, impulses), keyframed skeletal animation, skeleton mapping (chains, locked translations) |
 | Snapshots | ✅ save/restore (global, bodies, contacts, constraints), character state, bytes for networking |
 | Characters | ✅ `CharacterVirtual` (stairs, floor sticking, shape switching, inner body, listener, character-vs-character), rigid `Character` |
-| Listeners | ✅ contact, body activation, step |
+| Listeners | ✅ contact, soft body contact, body activation, step |
 | Materials | ✅ per shape, mesh triangle and height field cell, reported by hits, contacts and characters |
-| Soft bodies | ✅ cloth, cubes and custom meshes (vertices, faces, materials, edge/shear/bend/volume/long range constraints, generated or explicit), pinned vertices, pressure, vertex read/write, snapshots · ❌ soft body contact listener, skinning, Cosserat rods |
+| Soft bodies | ✅ cloth, cubes and custom meshes (vertices, faces, materials, edge/shear/bend/volume/long range constraints, generated or explicit), pinned vertices, pressure, vertex read/write, skinning to animated joints, Cosserat rods, contact listener, snapshots |
 | Not started | ❌ debug renderer, double precision |
 
 ## Safety

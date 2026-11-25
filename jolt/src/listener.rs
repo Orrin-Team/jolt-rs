@@ -157,6 +157,117 @@ pub trait ContactListener: Send + Sync + 'static {
     }
 }
 
+/// How a soft body and another body push each other, from [`SoftBodyContactListener::on_soft_body_contact_validate`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SoftBodyContactSettings {
+    /// Inverse mass scale of the soft body's vertices; 0 makes them immovable by this body.
+    pub inv_mass_scale1: f32,
+    /// Inverse mass and inertia scales of the other body; 0 makes it immovable by the soft body.
+    pub inv_mass_scale2: f32,
+    pub inv_inertia_scale2: f32,
+    /// Report contacts without pushing.
+    pub is_sensor: bool,
+}
+
+/// A soft body vertex touching another body.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SoftBodyVertexContact {
+    pub vertex: u32,
+    pub body: BodyId,
+    /// World space.
+    pub contact_point: Vec3,
+    pub contact_normal: Vec3,
+}
+
+// SoftBodyVertexContact is handed out as a view of the C array.
+const _: () = {
+    assert!(std::mem::size_of::<SoftBodyVertexContact>() == std::mem::size_of::<sys::JPC_SoftBodyVertexContact>());
+    assert!(std::mem::align_of::<SoftBodyVertexContact>() == std::mem::align_of::<sys::JPC_SoftBodyVertexContact>());
+    assert!(std::mem::offset_of!(SoftBodyVertexContact, body) == std::mem::offset_of!(sys::JPC_SoftBodyVertexContact, body_id));
+    assert!(std::mem::offset_of!(SoftBodyVertexContact, contact_point) == std::mem::offset_of!(sys::JPC_SoftBodyVertexContact, contact_point));
+    assert!(std::mem::offset_of!(SoftBodyVertexContact, contact_normal) == std::mem::offset_of!(sys::JPC_SoftBodyVertexContact, contact_normal));
+};
+
+/// The contacts of one soft body in one update.
+#[derive(Clone, Copy, Debug)]
+pub struct SoftBodyManifold<'a> {
+    /// One entry per vertex that touched something.
+    pub contacts: &'a [SoftBodyVertexContact],
+    /// Sensors the soft body touches.
+    pub sensors: &'a [BodyId],
+}
+
+/// Receives contact events of soft bodies during [`PhysicsSystem::update`](crate::PhysicsSystem::update).
+///
+/// Callbacks run on worker threads, several at once, while every body is locked: don't use the body interface. The
+/// soft body is safe to read; the other body may be moved by another thread meanwhile. A panic is caught and
+/// resumed when `update` returns.
+pub trait SoftBodyContactListener: Send + Sync + 'static {
+    /// The soft body's bounds started overlapping `other_body`. Return false to ignore that body.
+    fn on_soft_body_contact_validate(&self, soft_body: &Body, other_body: &Body, settings: &mut SoftBodyContactSettings) -> bool {
+        let _ = (soft_body, other_body, settings);
+        true
+    }
+
+    /// Called once per update for a soft body that touches anything.
+    fn on_soft_body_contact_added(&self, soft_body: &Body, manifold: &SoftBodyManifold<'_>) {
+        let _ = (soft_body, manifold);
+    }
+}
+
+pub(crate) struct SoftBodyContactListenerHolder {
+    pub(crate) listener: Box<dyn SoftBodyContactListener>,
+    pub(crate) panic: PanicSlot,
+}
+
+impl SoftBodyContactListenerHolder {
+    pub(crate) fn fns() -> sys::JPC_SoftBodyContactListenerFns {
+        sys::JPC_SoftBodyContactListenerFns {
+            on_soft_body_contact_validate: Some(on_soft_body_contact_validate),
+            on_soft_body_contact_added: Some(on_soft_body_contact_added),
+        }
+    }
+}
+
+unsafe extern "C" fn on_soft_body_contact_validate(
+    user_data: *mut c_void,
+    soft_body: *const sys::JPC_Body,
+    other_body: *const sys::JPC_Body,
+    settings: *mut sys::JPC_SoftBodyContactSettings,
+) -> bool {
+    let holder = unsafe { &*user_data.cast::<SoftBodyContactListenerHolder>() };
+    holder.panic.guard(true, || unsafe {
+        let raw = &mut *settings;
+        let mut s = SoftBodyContactSettings {
+            inv_mass_scale1: raw.inv_mass_scale1,
+            inv_mass_scale2: raw.inv_mass_scale2,
+            inv_inertia_scale2: raw.inv_inertia_scale2,
+            is_sensor: raw.is_sensor,
+        };
+        let accept = holder.listener.on_soft_body_contact_validate(Body::from_raw(soft_body), Body::from_raw(other_body), &mut s);
+        *raw = sys::JPC_SoftBodyContactSettings {
+            inv_mass_scale1: s.inv_mass_scale1,
+            inv_mass_scale2: s.inv_mass_scale2,
+            inv_inertia_scale2: s.inv_inertia_scale2,
+            is_sensor: s.is_sensor,
+        };
+        accept
+    })
+}
+
+unsafe extern "C" fn on_soft_body_contact_added(user_data: *mut c_void, soft_body: *const sys::JPC_Body, manifold: *const sys::JPC_SoftBodyManifold) {
+    let holder = unsafe { &*user_data.cast::<SoftBodyContactListenerHolder>() };
+    holder.panic.guard((), || unsafe {
+        let m = &*manifold;
+        // SAFETY: the layouts match (checked above), BodyId is a transparent u32, and the arrays live for the callback.
+        let contacts: &[SoftBodyVertexContact] =
+            if m.num_contacts == 0 { &[] } else { std::slice::from_raw_parts(m.contacts.cast(), m.num_contacts as usize) };
+        let sensors: &[BodyId] = if m.num_sensors == 0 { &[] } else { std::slice::from_raw_parts(m.sensors.cast(), m.num_sensors as usize) };
+        holder.listener.on_soft_body_contact_added(Body::from_raw(soft_body), &SoftBodyManifold { contacts, sensors });
+    })
+}
+
 /// Receives sleep and wake events. Called from worker threads during updates and from whichever thread
 /// wakes a body through the body interface. A panic is caught and resumed by the next `update`.
 pub trait BodyActivationListener: Send + Sync + 'static {

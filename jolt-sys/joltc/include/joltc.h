@@ -321,6 +321,9 @@ JPC_API JPC_Shape *JPC_BoxShape_Create(JPC_Vec3 half_extent, float convex_radius
 JPC_API JPC_Shape *JPC_CapsuleShape_Create(float half_height_of_cylinder, float radius);
 JPC_API JPC_Shape *JPC_TaperedCapsuleShape_Create(float half_height, float top_radius, float bottom_radius);
 JPC_API JPC_Shape *JPC_CylinderShape_Create(float half_height, float radius, float convex_radius);
+/* A single triangle; ray casts hit its front (counter-clockwise) side and convex_radius rounds it. It has no volume or
+ * mass, so use it for static or kinematic bodies. */
+JPC_API JPC_Shape *JPC_TriangleShape_Create(JPC_Vec3 v1, JPC_Vec3 v2, JPC_Vec3 v3, float convex_radius);
 JPC_API JPC_Shape *JPC_TaperedCylinderShape_Create(float half_height, float top_radius, float bottom_radius, float convex_radius);
 JPC_API JPC_Shape *JPC_ConvexHullShape_Create(const JPC_Vec3 *points, uint32_t num_points, float max_convex_radius);
 /* indices holds 3 * num_triangles vertex indices. */
@@ -855,6 +858,43 @@ typedef struct JPC_SoftBodyVertexAttributes {
     float lra_max_distance_multiplier;
 } JPC_SoftBodyVertexAttributes;
 
+/* Takes a vertex in its bind pose (JPC_SoftBodyVertex::position) into the space of a joint. */
+typedef struct JPC_SoftBodyInvBind {
+    uint32_t joint_index;
+    JPC_Mat44 inv_bind;
+} JPC_SoftBodyInvBind;
+
+typedef struct JPC_SoftBodySkinWeight {
+    /* Index into the inverse bind matrices. */
+    uint32_t inv_bind_index;
+    float weight;
+} JPC_SoftBodySkinWeight;
+
+/* Skins a vertex to up to 4 joints and limits how far the simulated vertex can move from where skinning puts it. */
+typedef struct JPC_SoftBodySkinned {
+    uint32_t vertex;
+    /* A weight of 0 ends the list. Weights are normalized to add up to 1. */
+    JPC_SoftBodySkinWeight weights[4];
+    /* 0 hard skins the vertex; FLT_MAX leaves it free. */
+    float max_distance;
+    /* Keeps the vertex from going further than this behind the skinned surface; disabled when >= max_distance. */
+    float back_stop_distance;
+    float back_stop_radius;
+} JPC_SoftBodySkinned;
+
+/* A rigid segment between two vertices that also has an orientation. Every rod should be in at least one bend twist
+ * constraint, or it spins freely around its axis. */
+typedef struct JPC_SoftBodyRod {
+    uint32_t vertices[2];
+    float compliance;
+} JPC_SoftBodyRod;
+
+/* Limits bending and twisting between two rods (indices into the rods). */
+typedef struct JPC_SoftBodyRodBendTwist {
+    uint32_t rods[2];
+    float compliance;
+} JPC_SoftBodyRodBendTwist;
+
 typedef struct JPC_SoftBodySharedSettingsDesc {
     const JPC_SoftBodyVertex *vertices;
     uint32_t num_vertices;
@@ -879,6 +919,16 @@ typedef struct JPC_SoftBodySharedSettingsDesc {
     uint32_t num_volumes;
     const JPC_SoftBodyLRA *lras;
     uint32_t num_lras;
+    /* Skinning (e.g. clothing on an animated character). */
+    const JPC_SoftBodyInvBind *inv_binds;
+    uint32_t num_inv_binds;
+    const JPC_SoftBodySkinned *skinned;
+    uint32_t num_skinned;
+    /* Cosserat rods (e.g. hair, plants): rigid segments with an orientation. */
+    const JPC_SoftBodyRod *rods;
+    uint32_t num_rods;
+    const JPC_SoftBodyRodBendTwist *rod_bend_twists;
+    uint32_t num_rod_bend_twists;
 } JPC_SoftBodySharedSettingsDesc;
 
 typedef struct JPC_SoftBodySharedSettingsCounts {
@@ -888,13 +938,19 @@ typedef struct JPC_SoftBodySharedSettingsCounts {
     uint32_t dihedral_bends;
     uint32_t volumes;
     uint32_t lras;
+    uint32_t skinned;
+    uint32_t rods;
+    uint32_t rod_bend_twists;
+    /* Joints the skinning refers to (highest joint index + 1). */
+    uint32_t skin_joints;
 } JPC_SoftBodySharedSettingsCounts;
 
 JPC_API void JPC_SoftBodyVertexAttributes_SetDefault(JPC_SoftBodyVertexAttributes *attributes);
 JPC_API void JPC_SoftBodySharedSettingsDesc_SetDefault(JPC_SoftBodySharedSettingsDesc *desc);
 /* The particles and constraints of a soft body; one settings object can create many bodies. Immutable and reference
  * counted. NULL with an error for out of range or repeated vertex indices, degenerate faces, bad material indices,
- * constraints between vertices at the same position, negative masses or compliances. */
+ * constraints or rods between vertices at the same position, negative masses or compliances, or a vertex skinned
+ * twice or touching 256 or more faces. */
 JPC_API JPC_SoftBodySharedSettings *JPC_SoftBodySharedSettings_Create(const JPC_SoftBodySharedSettingsDesc *desc);
 /* A cube of grid_size^3 vertices (2 to 64 per side) with edge and volume constraints, for testing. */
 JPC_API JPC_SoftBodySharedSettings *JPC_SoftBodySharedSettings_CreateCube(uint32_t grid_size, float spacing);
@@ -903,6 +959,9 @@ JPC_API void JPC_SoftBodySharedSettings_Release(const JPC_SoftBodySharedSettings
 JPC_API void JPC_SoftBodySharedSettings_GetCounts(const JPC_SoftBodySharedSettings *settings, JPC_SoftBodySharedSettingsCounts *out_counts);
 /* Writes up to capacity faces and returns the total number (e.g. to render the body). */
 JPC_API uint32_t JPC_SoftBodySharedSettings_GetFaces(const JPC_SoftBodySharedSettings *settings, JPC_SoftBodyFace *out_faces, uint32_t capacity);
+/* The rods in simulation order, which is not the order they were given in (and the two vertices of a rod may have been
+ * swapped). Rod states are reported in this order. Writes up to capacity and returns the total number. */
+JPC_API uint32_t JPC_SoftBodySharedSettings_GetRods(const JPC_SoftBodySharedSettings *settings, JPC_SoftBodyRod *out_rods, uint32_t capacity);
 
 typedef struct JPC_SoftBodyCreationSettings {
     /* Borrowed; the body keeps its own reference. Required. */
@@ -967,6 +1026,65 @@ JPC_API bool JPC_BodyInterface_GetSoftBodyProperties(const JPC_BodyInterface *bi
 JPC_API bool JPC_BodyInterface_SetSoftBodyProperties(JPC_BodyInterface *bi, JPC_BodyID id, const JPC_SoftBodyProperties *properties);
 /* Current enclosed volume (meaningful for closed bodies), 0 for anything that is not a soft body. */
 JPC_API float JPC_BodyInterface_GetSoftBodyVolume(const JPC_BodyInterface *bi, JPC_BodyID id);
+
+typedef struct JPC_SoftBodyRodState {
+    JPC_Quat rotation;
+    JPC_Vec3 angular_velocity;
+} JPC_SoftBodyRodState;
+
+/* Copies up to capacity rod states (world space, in the order of JPC_SoftBodySharedSettings_GetRods) starting at first
+ * and returns the total number of rods (0 for anything that is not a soft body). */
+JPC_API uint32_t JPC_BodyInterface_GetSoftBodyRods(const JPC_BodyInterface *bi, JPC_BodyID id, uint32_t first, JPC_SoftBodyRodState *out_rods, uint32_t capacity);
+
+/* Skins the body's skinned vertices with num_joints world space joint matrices, e.g. from an animated skeleton. Call it before every update that should follow the animation.
+ * hard_skin_all teleports every skinned vertex to its skinned position (e.g. after a teleport). Returns false for
+ * anything that is not a soft body, a body without skinned vertices, or fewer joints than the skinning refers to. */
+JPC_API bool JPC_BodyInterface_SkinSoftBody(JPC_BodyInterface *bi, JPC_BodyID id, const JPC_Mat44 *joint_matrices, uint32_t num_joints, bool hard_skin_all,
+                                            JPC_TempAllocator *temp_allocator);
+/* Turns the max distance / back stop limits of skinned vertices on or off (on by default). With them off, only hard
+ * skinned vertices (max_distance 0) follow the skin. */
+JPC_API bool JPC_BodyInterface_SetSoftBodySkinConstraintsEnabled(JPC_BodyInterface *bi, JPC_BodyID id, bool enabled, float max_distance_multiplier);
+
+/* Soft body contacts. Callbacks run on worker threads during the update, while all bodies are locked: don't use a
+ * body interface. Only the soft body is safe to read; the other body may be moved by another thread. */
+typedef struct JPC_SoftBodyContactSettings {
+    /* Inverse mass scales of the soft body (1) and the other body (2), and inverse inertia scale of the other body:
+     * 0 makes that side immovable. */
+    float inv_mass_scale1;
+    float inv_mass_scale2;
+    float inv_inertia_scale2;
+    /* Report contacts but don't push. */
+    bool is_sensor;
+} JPC_SoftBodyContactSettings;
+
+typedef struct JPC_SoftBodyVertexContact {
+    uint32_t vertex;
+    JPC_BodyID body_id;
+    /* World space. */
+    JPC_RVec3 contact_point;
+    /* Points away from the other body. */
+    JPC_Vec3 contact_normal;
+} JPC_SoftBodyVertexContact;
+
+typedef struct JPC_SoftBodyManifold {
+    /* One entry per vertex that touched something this update. Only valid during the callback. */
+    const JPC_SoftBodyVertexContact *contacts;
+    uint32_t num_contacts;
+    /* Sensors the soft body touches. */
+    const JPC_BodyID *sensors;
+    uint32_t num_sensors;
+} JPC_SoftBodyManifold;
+
+/* Any callback may be NULL. */
+typedef struct JPC_SoftBodyContactListenerFns {
+    /* Called when the soft body's bounds start overlapping another body. Return false to ignore that body. */
+    bool (*on_soft_body_contact_validate)(void *user_data, const JPC_Body *soft_body, const JPC_Body *other_body, JPC_SoftBodyContactSettings *settings);
+    /* Called once per update for a soft body that touches anything. */
+    void (*on_soft_body_contact_added)(void *user_data, const JPC_Body *soft_body, const JPC_SoftBodyManifold *manifold);
+} JPC_SoftBodyContactListenerFns;
+
+/* fns is copied; NULL removes the listener. */
+JPC_API void JPC_PhysicsSystem_SetSoftBodyContactListener(JPC_PhysicsSystem *system, const JPC_SoftBodyContactListenerFns *fns, void *user_data);
 
 /* ------------------------------------------------------------------------- */
 /* Queries                                                                    */

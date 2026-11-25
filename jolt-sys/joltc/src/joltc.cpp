@@ -15,6 +15,7 @@
 #include <Jolt/Physics/Constraints/RackAndPinionConstraint.h>
 #include <Jolt/Physics/StateRecorderImpl.h>
 #include <Jolt/Geometry/OrientedBox.h>
+#include <Jolt/Physics/Collision/Shape/TriangleShape.h>
 
 static_assert(sizeof(JPC_ObjectLayer) == sizeof(ObjectLayer), "JPC_ObjectLayer must match JPH_OBJECT_LAYER_BITS");
 static_assert(sizeof(JPC_BodyID) == sizeof(BodyID), "BodyID size mismatch");
@@ -177,6 +178,12 @@ JPC_Shape *JPC_TaperedCapsuleShape_Create(float half_height, float top_radius, f
 JPC_Shape *JPC_CylinderShape_Create(float half_height, float radius, float convex_radius)
 {
 	CylinderShapeSettings settings(half_height, radius, convex_radius);
+	return CreateShape(settings);
+}
+
+JPC_Shape *JPC_TriangleShape_Create(JPC_Vec3 v1, JPC_Vec3 v2, JPC_Vec3 v3, float convex_radius)
+{
+	TriangleShapeSettings settings(ToJph(v1), ToJph(v2), ToJph(v3), convex_radius);
 	return CreateShape(settings);
 }
 
@@ -492,6 +499,20 @@ void JPC_PhysicsSystem_SetContactListener(JPC_PhysicsSystem *system, const JPC_C
 	system->mContactListener.mFns = *fns;
 	system->mContactListener.mUserData = user_data;
 	system->mSystem.SetContactListener(&system->mContactListener);
+}
+
+void JPC_PhysicsSystem_SetSoftBodyContactListener(JPC_PhysicsSystem *system, const JPC_SoftBodyContactListenerFns *fns, void *user_data)
+{
+	if (fns == nullptr)
+	{
+		system->mSystem.SetSoftBodyContactListener(nullptr);
+		system->mSoftBodyContactListener.mFns = { };
+		system->mSoftBodyContactListener.mUserData = nullptr;
+		return;
+	}
+	system->mSoftBodyContactListener.mFns = *fns;
+	system->mSoftBodyContactListener.mUserData = user_data;
+	system->mSystem.SetSoftBodyContactListener(&system->mSoftBodyContactListener);
 }
 
 void JPC_PhysicsSystem_SetBodyActivationListener(JPC_PhysicsSystem *system, const JPC_BodyActivationListenerFns *fns, void *user_data)

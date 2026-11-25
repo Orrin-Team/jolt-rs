@@ -496,3 +496,194 @@ fn vehicle_testers_are_checked_against_the_vehicle_system() {
     v.set_collision_tester(&local).unwrap();
     world.step(5);
 }
+
+// ---------------------------------------------------------------------------
+// Triangle shapes, soft body contacts, skinning and rods
+// ---------------------------------------------------------------------------
+
+#[test]
+fn triangle_shape() {
+    let world = World::new();
+    // Counter-clockwise seen from above, so it faces up.
+    let triangle = Shape::triangle(Vec3::new(-1.0, 0.0, -1.0), Vec3::new(0.0, 0.0, 1.0), Vec3::new(1.0, 0.0, -1.0), 0.0).unwrap();
+    assert_eq!(triangle.sub_type(), ShapeSubType::Triangle);
+    let body = world.add(triangle, Vec3::new(0.0, 1.0, 0.0), MotionType::Static);
+    let hit = world.system.cast_ray(Vec3::new(0.0, 5.0, 0.0), Vec3::new(0.0, -10.0, 0.0), &QueryFilter::new()).unwrap();
+    assert_eq!(hit.body_id, body);
+    assert!((hit.point.y - 1.0).abs() < 1e-4);
+    assert_eq!(Shape::triangle(Vec3::ZERO, Vec3::Z, Vec3::X, 0.1).unwrap().volume(), 0.0, "triangles have no volume or mass");
+}
+
+#[derive(Default)]
+struct SoftContacts {
+    validated: std::sync::Mutex<Vec<BodyId>>,
+    contacts: std::sync::Mutex<Vec<SoftBodyVertexContact>>,
+    reject: Option<BodyId>,
+}
+
+struct Shared(std::sync::Arc<SoftContacts>);
+
+impl SoftBodyContactListener for Shared {
+    fn on_soft_body_contact_validate(&self, soft_body: &Body, other_body: &Body, settings: &mut SoftBodyContactSettings) -> bool {
+        assert!(soft_body.is_soft_body() && !other_body.is_soft_body());
+        assert_eq!(settings.inv_mass_scale1, 1.0);
+        self.0.validated.lock().unwrap().push(other_body.id());
+        Some(other_body.id()) != self.0.reject
+    }
+
+    fn on_soft_body_contact_added(&self, soft_body: &Body, manifold: &SoftBodyManifold<'_>) {
+        assert!(soft_body.shape().is_none());
+        self.0.contacts.lock().unwrap().extend_from_slice(manifold.contacts);
+    }
+}
+
+#[test]
+fn soft_body_contact_listener() {
+    let mut world = World::new();
+    let floor = world.floor();
+    let listener = std::sync::Arc::new(SoftContacts::default());
+    world.system.set_soft_body_contact_listener(Shared(listener.clone()));
+    let cube = world.soft_cube(Vec3::new(0.0, 0.5, 0.0));
+    world.step(30);
+    assert!(listener.validated.lock().unwrap().contains(&floor));
+    let contacts = listener.contacts.lock().unwrap().clone();
+    assert!(!contacts.is_empty());
+    for c in &contacts {
+        assert_eq!(c.body, floor);
+        assert!(c.contact_point.y.abs() < 0.05, "{c:?}");
+        assert!(c.contact_normal.y.abs() > 0.99, "{c:?}");
+    }
+    let normal_y = contacts[0].contact_normal.y;
+
+    // Rejecting the floor lets a new cube fall through it.
+    let rejecting = std::sync::Arc::new(SoftContacts { reject: Some(floor), ..Default::default() });
+    world.system.set_soft_body_contact_listener(Shared(rejecting.clone()));
+    let other = world.soft_cube(Vec3::new(5.0, 0.5, 0.0));
+    world.step(60);
+    let lowest = world.system.body_interface().soft_body_vertices(other, true).unwrap().iter().map(|v| v.position.y).fold(f32::MAX, f32::min);
+    assert!(lowest < -0.5, "the rejected floor doesn't hold the cube: {lowest}");
+    assert!(rejecting.contacts.lock().unwrap().iter().all(|c| c.body != floor));
+    let _ = (cube, normal_y);
+    world.system.clear_soft_body_contact_listener();
+    world.step(1);
+}
+
+/// A 2 x 5 strip of cloth hanging down from a joint, with its top row hard skinned and the rest within 0.5 m.
+fn skinned_strip() -> SoftBodyDesc {
+    let mut desc = SoftBodyDesc::default();
+    for y in 0..5u32 {
+        for x in 0..2u32 {
+            desc.vertices.push(SoftBodyVertex::new(Vec3::new(x as f32 * 0.2, -(y as f32) * 0.2, 0.0)));
+        }
+    }
+    for y in 0..4u32 {
+        let i = y * 2;
+        desc.faces.push(SoftBodyFace::new([i, i + 2, i + 1]));
+        desc.faces.push(SoftBodyFace::new([i + 1, i + 2, i + 3]));
+    }
+    desc.vertex_attributes.push(VertexAttributes::default());
+    desc.inv_binds.push(SoftBodyInvBind { joint_index: 1, inv_bind: Mat44::IDENTITY });
+    let weights = vec![SkinWeight { inv_bind_index: 0, weight: 1.0 }];
+    for v in 0..10 {
+        desc.skinned.push(if v < 2 { SoftBodySkinned::hard(v, weights.clone()) } else { SoftBodySkinned::within(v, weights.clone(), 0.5) });
+    }
+    desc
+}
+
+#[test]
+fn skinned_soft_body_follows_its_joints() {
+    let mut world = World::new();
+    let settings = SoftBodySharedSettings::new(&skinned_strip()).unwrap();
+    let counts = settings.counts();
+    assert_eq!((counts.skinned, counts.skin_joints), (10, 2));
+    let s = SoftBodyCreationSettings::new(settings, Vec3::new(0.0, 5.0, 0.0), Quat::IDENTITY, world.moving_layer);
+    let body = world.system.body_interface().create_and_add_soft_body(&s, Activation::Activate).unwrap();
+
+    // Updating before ever skinning stays finite.
+    world.step(2);
+    let vertices = world.system.body_interface().soft_body_vertices(body, true).unwrap();
+    assert!(vertices.iter().all(|v| v.position.x.is_finite() && v.position.y.is_finite()));
+
+    let bodies = world.system.body_interface();
+    let joints = |offset: Vec3| vec![Mat44::IDENTITY, Mat44::from_translation(Vec3::new(0.0, 5.0, 0.0) + offset)];
+    assert!(bodies.skin_soft_body(body, &joints(Vec3::ZERO)[..1], true, &mut world.temp).unwrap_err().message().contains("joint"));
+    bodies.skin_soft_body(body, &joints(Vec3::ZERO), true, &mut world.temp).unwrap();
+    let skinned = bodies.soft_body_vertices(body, true).unwrap();
+    assert!((skinned[1].position - Vec3::new(0.2, 5.0, 0.0)).length() < 1e-4, "{:?}", skinned[1]);
+
+    // Move the joint sideways: the hard skinned top row follows exactly, the rest stays within reach.
+    for _ in 0..60 {
+        world.system.body_interface().skin_soft_body(body, &joints(Vec3::new(2.0, 0.0, 0.0)), false, &mut world.temp).unwrap();
+        world.step(1);
+    }
+    let moved = world.system.body_interface().soft_body_vertices(body, true).unwrap();
+    assert!((moved[0].position - Vec3::new(2.0, 5.0, 0.0)).length() < 1e-3, "{:?}", moved[0]);
+    assert!((moved[9].position.x - 2.2).abs() < 0.6, "{:?}", moved[9]);
+
+    world.system.body_interface().set_soft_body_skin_constraints(body, false, 1.0).unwrap();
+    assert!(world.system.body_interface().set_soft_body_skin_constraints(body, true, -1.0).is_err());
+
+    // Only skinned soft bodies can be skinned.
+    let cube = world.soft_cube(Vec3::new(10.0, 1.0, 0.0));
+    assert!(world.system.body_interface().skin_soft_body(cube, &joints(Vec3::ZERO), false, &mut world.temp).is_err());
+
+    // Skinning is validated.
+    let err = |d: SoftBodyDesc| SoftBodySharedSettings::new(&d).unwrap_err().message().to_owned();
+    let mut d = skinned_strip();
+    d.skinned[0].weights[0].inv_bind_index = 3;
+    assert!(err(d).contains("inverse bind"));
+    let mut d = skinned_strip();
+    d.skinned[1].vertex = 0;
+    assert!(err(d).contains("twice"));
+    let mut d = skinned_strip();
+    d.skinned[0].weights = vec![SkinWeight { inv_bind_index: 0, weight: 0.2 }; 5];
+    assert!(err(d).contains("4 weights"));
+}
+
+#[test]
+fn rods_bend_and_report_orientation() {
+    let mut world = World::new();
+    // A horizontal rope of 4 rods, pinned at one end.
+    let mut desc = SoftBodyDesc::default();
+    for i in 0..5u32 {
+        let position = Vec3::new(i as f32 * 0.25, 0.0, 0.0);
+        desc.vertices.push(if i == 0 { SoftBodyVertex::pinned(position) } else { SoftBodyVertex::new(position) });
+    }
+    for i in 0..4u32 {
+        desc.rods.push(SoftBodyRod { vertices: [i, i + 1], compliance: 0.0 });
+    }
+    for i in 0..3u32 {
+        desc.rod_bend_twists.push(SoftBodyRodBendTwist { rods: [i, i + 1], compliance: 1.0e-3 });
+    }
+    let settings = SoftBodySharedSettings::new(&desc).unwrap();
+    assert_eq!((settings.counts().rods, settings.counts().rod_bend_twists), (4, 3));
+    let rods = settings.rods();
+    assert_eq!(rods.len(), 4);
+    assert!(rods.iter().all(|r| r.vertices[0].abs_diff(r.vertices[1]) == 1), "{rods:?}");
+
+    let s = SoftBodyCreationSettings::new(settings, Vec3::new(0.0, 5.0, 0.0), Quat::IDENTITY, world.moving_layer);
+    let body = world.system.body_interface().create_and_add_soft_body(&s, Activation::Activate).unwrap();
+    world.step(60);
+    let vertices = world.system.body_interface().soft_body_vertices(body, true).unwrap();
+    // Rods keep their length while the free end droops.
+    for r in &rods {
+        let length = (vertices[r.vertices[1] as usize].position - vertices[r.vertices[0] as usize].position).length();
+        assert!((length - 0.25).abs() < 0.01, "{length}");
+    }
+    assert!(vertices[4].position.y < 4.99);
+    let states = world.system.body_interface().soft_body_rods(body).unwrap();
+    assert_eq!(states.len(), 4);
+    assert!(states.iter().all(|s| (s.rotation.length() - 1.0).abs() < 1e-3));
+    assert!(world.system.body_interface().soft_body_rods(world.floor()).is_none());
+
+    let err = |d: SoftBodyDesc| SoftBodySharedSettings::new(&d).unwrap_err().message().to_owned();
+    let mut d = desc.clone();
+    d.rods.push(SoftBodyRod { vertices: [1, 1], compliance: 0.0 });
+    assert!(err(d).contains("rod"));
+    let mut d = desc.clone();
+    d.vertices[2].position = d.vertices[1].position;
+    assert!(err(d).contains("same position"));
+    let mut d = desc;
+    d.rod_bend_twists.push(SoftBodyRodBendTwist { rods: [2, 9], compliance: 0.0 });
+    assert!(err(d).contains("bend twist"));
+}

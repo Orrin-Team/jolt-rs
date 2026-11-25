@@ -34,7 +34,7 @@ use std::ptr::NonNull;
 
 use jolt_sys as sys;
 
-use crate::{Activation, BodyId, BodyInterface, CollisionGroup, Error, ObjectLayer, PhysicsMaterial, Quat, Result, Vec3};
+use crate::{Activation, BodyId, BodyInterface, CollisionGroup, Error, Mat44, ObjectLayer, PhysicsMaterial, Quat, Result, TempAllocator, Vec3};
 
 /// A particle as it is created.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -97,6 +97,68 @@ pub struct SoftBodyVolume {
 pub struct SoftBodyLra {
     pub vertices: [u32; 2],
     pub max_distance_multiplier: f32,
+}
+
+/// Takes a vertex in its bind pose ([`SoftBodyVertex::position`]) into the space of a joint.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SoftBodyInvBind {
+    pub joint_index: u32,
+    pub inv_bind: Mat44,
+}
+
+/// One joint influence on a skinned vertex.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SkinWeight {
+    /// Index into [`SoftBodyDesc::inv_binds`].
+    pub inv_bind_index: u32,
+    pub weight: f32,
+}
+
+/// Skins a vertex to up to 4 joints and limits how far the simulated vertex may move from its skinned position.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SoftBodySkinned {
+    pub vertex: u32,
+    /// At most 4, normalized to add up to 1.
+    pub weights: Vec<SkinWeight>,
+    /// 0 hard skins the vertex; `f32::MAX` leaves it free.
+    pub max_distance: f32,
+    /// Keeps the vertex from going further than this behind the skinned surface; off when >= `max_distance`.
+    pub back_stop_distance: f32,
+    pub back_stop_radius: f32,
+}
+
+impl SoftBodySkinned {
+    /// A vertex that follows the skin exactly.
+    pub fn hard(vertex: u32, weights: Vec<SkinWeight>) -> Self {
+        Self { vertex, weights, max_distance: 0.0, back_stop_distance: f32::MAX, back_stop_radius: 40.0 }
+    }
+
+    /// A vertex that may move up to `max_distance` from its skinned position.
+    pub fn within(vertex: u32, weights: Vec<SkinWeight>, max_distance: f32) -> Self {
+        Self { max_distance, ..Self::hard(vertex, weights) }
+    }
+}
+
+/// A rigid segment between two vertices that also has an orientation, for hair, ropes and plants. Every rod should be
+/// in at least one [`SoftBodyRodBendTwist`], or it spins freely around its axis.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SoftBodyRod {
+    pub vertices: [u32; 2],
+    pub compliance: f32,
+}
+
+/// Limits bending and twisting between two rods (indices into [`SoftBodyDesc::rods`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SoftBodyRodBendTwist {
+    pub rods: [u32; 2],
+    pub compliance: f32,
+}
+
+/// Orientation of a rod of a live soft body, in world space.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SoftBodyRodState {
+    pub rotation: Quat,
+    pub angular_velocity: Vec3,
 }
 
 /// Which bend constraints to generate from the faces.
@@ -172,6 +234,11 @@ pub struct SoftBodyDesc {
     pub dihedral_bends: Vec<SoftBodyDihedralBend>,
     pub volumes: Vec<SoftBodyVolume>,
     pub lras: Vec<SoftBodyLra>,
+    /// Skinning, e.g. clothing on an animated character; drive it with [`BodyInterface::skin_soft_body`].
+    pub inv_binds: Vec<SoftBodyInvBind>,
+    pub skinned: Vec<SoftBodySkinned>,
+    pub rods: Vec<SoftBodyRod>,
+    pub rod_bend_twists: Vec<SoftBodyRodBendTwist>,
 }
 
 impl Default for SoftBodyDesc {
@@ -189,6 +256,10 @@ impl Default for SoftBodyDesc {
             dihedral_bends: Vec::new(),
             volumes: Vec::new(),
             lras: Vec::new(),
+            inv_binds: Vec::new(),
+            skinned: Vec::new(),
+            rods: Vec::new(),
+            rod_bend_twists: Vec::new(),
         }
     }
 }
@@ -202,6 +273,11 @@ pub struct SoftBodyCounts {
     pub dihedral_bends: usize,
     pub volumes: usize,
     pub lras: usize,
+    pub skinned: usize,
+    pub rods: usize,
+    pub rod_bend_twists: usize,
+    /// Joint matrices [`BodyInterface::skin_soft_body`] needs (highest joint index + 1).
+    pub skin_joints: usize,
 }
 
 /// The particles and constraints of a soft body. Immutable and reference counted: one settings object can create
@@ -252,6 +328,32 @@ impl SoftBodySharedSettings {
             desc.dihedral_bends.iter().map(|b| sys::JPC_SoftBodyDihedralBend { vertices: b.vertices, compliance: b.compliance }).collect();
         let volumes: Vec<sys::JPC_SoftBodyVolume> =
             desc.volumes.iter().map(|v| sys::JPC_SoftBodyVolume { vertices: v.vertices, compliance: v.compliance }).collect();
+        let inv_binds: Vec<sys::JPC_SoftBodyInvBind> =
+            desc.inv_binds.iter().map(|b| sys::JPC_SoftBodyInvBind { joint_index: b.joint_index, inv_bind: b.inv_bind.into() }).collect();
+        let skinned: Vec<sys::JPC_SoftBodySkinned> = desc
+            .skinned
+            .iter()
+            .map(|k| {
+                if k.weights.len() > 4 {
+                    return Err(Error::new("a skinned vertex has at most 4 weights"));
+                }
+                let mut weights = [sys::JPC_SoftBodySkinWeight::default(); 4];
+                for (out, w) in weights.iter_mut().zip(&k.weights) {
+                    *out = sys::JPC_SoftBodySkinWeight { inv_bind_index: w.inv_bind_index, weight: w.weight };
+                }
+                Ok(sys::JPC_SoftBodySkinned {
+                    vertex: k.vertex,
+                    weights,
+                    max_distance: k.max_distance,
+                    back_stop_distance: k.back_stop_distance,
+                    back_stop_radius: k.back_stop_radius,
+                })
+            })
+            .collect::<Result<_>>()?;
+        let rods: Vec<sys::JPC_SoftBodyRod> =
+            desc.rods.iter().map(|r| sys::JPC_SoftBodyRod { vertices: r.vertices, compliance: r.compliance }).collect();
+        let bend_twists: Vec<sys::JPC_SoftBodyRodBendTwist> =
+            desc.rod_bend_twists.iter().map(|b| sys::JPC_SoftBodyRodBendTwist { rods: b.rods, compliance: b.compliance }).collect();
         let lras: Vec<sys::JPC_SoftBodyLRA> = desc
             .lras
             .iter()
@@ -280,6 +382,14 @@ impl SoftBodySharedSettings {
             num_volumes: len(volumes.len(), "volume constraints")?,
             lras: lras.as_ptr(),
             num_lras: len(lras.len(), "LRA constraints")?,
+            inv_binds: inv_binds.as_ptr(),
+            num_inv_binds: len(inv_binds.len(), "inverse bind matrices")?,
+            skinned: skinned.as_ptr(),
+            num_skinned: len(skinned.len(), "skinned vertices")?,
+            rods: rods.as_ptr(),
+            num_rods: len(rods.len(), "rods")?,
+            rod_bend_twists: bend_twists.as_ptr(),
+            num_rod_bend_twists: len(bend_twists.len(), "rod bend twist constraints")?,
         };
         Self::wrap(unsafe { sys::JPC_SoftBodySharedSettings_Create(&raw) })
     }
@@ -308,7 +418,20 @@ impl SoftBodySharedSettings {
             dihedral_bends: c.dihedral_bends as usize,
             volumes: c.volumes as usize,
             lras: c.lras as usize,
+            skinned: c.skinned as usize,
+            rods: c.rods as usize,
+            rod_bend_twists: c.rod_bend_twists as usize,
+            skin_joints: c.skin_joints as usize,
         }
+    }
+
+    /// The rods in simulation order, which differs from the order in [`SoftBodyDesc::rods`] (and a rod's two
+    /// vertices may be swapped). [`BodyInterface::soft_body_rods`] reports rods in this order.
+    pub fn rods(&self) -> Vec<SoftBodyRod> {
+        let mut out = vec![sys::JPC_SoftBodyRod::default(); self.counts().rods];
+        let n = unsafe { sys::JPC_SoftBodySharedSettings_GetRods(self.as_raw(), out.as_mut_ptr(), out.len() as u32) };
+        out.truncate(n as usize);
+        out.into_iter().map(|r| SoftBodyRod { vertices: r.vertices, compliance: r.compliance }).collect()
     }
 
     /// The faces, e.g. to render the body with [`BodyInterface::soft_body_vertices`].
@@ -516,6 +639,37 @@ impl BodyInterface<'_> {
             faces_double_sided: properties.faces_double_sided,
         };
         if unsafe { sys::JPC_BodyInterface_SetSoftBodyProperties(self.as_raw(), id.0, &p) } { Ok(()) } else { Err(Error::last()) }
+    }
+
+    /// Rod orientations in world space, in the order of [`SoftBodySharedSettings::rods`]; `None` for anything that is
+    /// not a soft body.
+    pub fn soft_body_rods(&self, id: BodyId) -> Option<Vec<SoftBodyRodState>> {
+        if !self.is_soft_body(id) {
+            return None;
+        }
+        let count = unsafe { sys::JPC_BodyInterface_GetSoftBodyRods(self.as_raw(), id.0, 0, std::ptr::null_mut(), 0) };
+        let mut out = vec![sys::JPC_SoftBodyRodState::default(); count as usize];
+        let count = unsafe { sys::JPC_BodyInterface_GetSoftBodyRods(self.as_raw(), id.0, 0, out.as_mut_ptr(), count) };
+        out.truncate(count as usize);
+        Some(out.into_iter().map(|r| SoftBodyRodState { rotation: r.rotation.into(), angular_velocity: r.angular_velocity.into() }).collect())
+    }
+
+    /// Moves the skinned vertices along with world space joint matrices, e.g. from an animated skeleton. Call it
+    /// before every update that should follow the animation, and before the first update. `hard_skin_all` teleports
+    /// every skinned vertex to the skin. Fails for anything that is not a soft body with skinned vertices, or for
+    /// fewer joints than [`SoftBodyCounts::skin_joints`].
+    pub fn skin_soft_body(&self, id: BodyId, joint_matrices: &[Mat44], hard_skin_all: bool, temp: &mut TempAllocator) -> Result<()> {
+        let joints: Vec<sys::JPC_Mat44> = joint_matrices.iter().map(|&m| m.into()).collect();
+        let count = u32::try_from(joints.len()).map_err(|_| Error::new("too many joints"))?;
+        let ok = unsafe { sys::JPC_BodyInterface_SkinSoftBody(self.as_raw(), id.0, joints.as_ptr(), count, hard_skin_all, temp.raw()) };
+        if ok { Ok(()) } else { Err(Error::last()) }
+    }
+
+    /// Turns the distance and back stop limits of skinned vertices on or off (on by default), and scales their max
+    /// distances. With them off only hard skinned vertices follow the skin.
+    pub fn set_soft_body_skin_constraints(&self, id: BodyId, enabled: bool, max_distance_multiplier: f32) -> Result<()> {
+        let ok = unsafe { sys::JPC_BodyInterface_SetSoftBodySkinConstraintsEnabled(self.as_raw(), id.0, enabled, max_distance_multiplier) };
+        if ok { Ok(()) } else { Err(Error::last()) }
     }
 
     /// Volume enclosed by the faces (meaningful for closed bodies); 0 for anything that is not a soft body.

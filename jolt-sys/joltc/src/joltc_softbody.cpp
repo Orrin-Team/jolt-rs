@@ -140,6 +140,53 @@ const char *Validate(const JPC_SoftBodySharedSettingsDesc &d)
 	for (uint32_t i = 0; i < d.num_volumes; ++i)
 		if (!CheckVertices(d.volumes[i].vertices, d.num_vertices) || !IsCompliance(d.volumes[i].compliance))
 			return "volume constraint needs 4 different vertices that exist and a compliance >= 0";
+	if (!CheckArray(d.inv_binds, d.num_inv_binds) || !CheckArray(d.skinned, d.num_skinned) || !CheckArray(d.rods, d.num_rods)
+		|| !CheckArray(d.rod_bend_twists, d.num_rod_bend_twists))
+		return "soft body array is null";
+	if (d.num_skinned > 0)
+	{
+		// Jolt packs the faces around a skinned vertex into 8 bits of count and 24 bits of offset
+		Array<uint32> faces_per_vertex(d.num_vertices, 0);
+		for (uint32_t i = 0; i < d.num_faces; ++i)
+			for (uint32_t v : d.faces[i].vertices)
+				++faces_per_vertex[v];
+		Array<bool> skinned(d.num_vertices, false);
+		uint64 total_faces = 0;
+		for (uint32_t i = 0; i < d.num_skinned; ++i)
+		{
+			const JPC_SoftBodySkinned &k = d.skinned[i];
+			if (k.vertex >= d.num_vertices || skinned[k.vertex])
+				return "skinned vertex does not exist or is skinned twice";
+			skinned[k.vertex] = true;
+			if (faces_per_vertex[k.vertex] >= 256)
+				return "a skinned vertex touches 256 or more faces";
+			total_faces += faces_per_vertex[k.vertex];
+			if (!(k.max_distance >= 0.0f) || !(k.back_stop_distance >= -FLT_MAX) || !(k.back_stop_radius > 0.0f))
+				return "skinned vertex needs max_distance >= 0 and back_stop_radius > 0";
+			for (const JPC_SoftBodySkinWeight &w : k.weights)
+			{
+				if (w.weight == 0.0f)
+					break;
+				if (!(w.weight > 0.0f) || !std::isfinite(w.weight) || w.inv_bind_index >= d.num_inv_binds)
+					return "skin weights must be positive and refer to an inverse bind matrix that exists";
+			}
+		}
+		if (total_faces >= (1u << 24))
+			return "too many faces around skinned vertices";
+	}
+	for (uint32_t i = 0; i < d.num_rods; ++i)
+	{
+		if (!CheckVertices(d.rods[i].vertices, d.num_vertices) || !IsCompliance(d.rods[i].compliance))
+			return "rod needs 2 different vertices that exist and a compliance >= 0";
+		if (SamePosition(d, d.rods[i].vertices[0], d.rods[i].vertices[1]))
+			return "rod connects two vertices at the same position";
+	}
+	for (uint32_t i = 0; i < d.num_rod_bend_twists; ++i)
+	{
+		const JPC_SoftBodyRodBendTwist &b = d.rod_bend_twists[i];
+		if (b.rods[0] >= d.num_rods || b.rods[1] >= d.num_rods || b.rods[0] == b.rods[1] || !IsCompliance(b.compliance))
+			return "rod bend twist needs 2 different rods that exist and a compliance >= 0";
+	}
 	for (uint32_t i = 0; i < d.num_lras; ++i)
 	{
 		if (!CheckVertices(d.lras[i].vertices, d.num_vertices) || !(d.lras[i].max_distance_multiplier > 0.0f))
@@ -226,8 +273,26 @@ JPC_SoftBodySharedSettings *JPC_SoftBodySharedSettings_Create(const JPC_SoftBody
 		s->mLRAConstraints.emplace_back(l.vertices[0], l.vertices[1], distance * l.max_distance_multiplier);
 	}
 
+	for (uint32_t i = 0; i < d.num_inv_binds; ++i)
+		s->mInvBindMatrices.emplace_back(d.inv_binds[i].joint_index, ToJph(d.inv_binds[i].inv_bind));
+	for (uint32_t i = 0; i < d.num_skinned; ++i)
+	{
+		const JPC_SoftBodySkinned &k = d.skinned[i];
+		SoftBodySharedSettings::Skinned skinned(k.vertex, k.max_distance, k.back_stop_distance, k.back_stop_radius);
+		for (int w = 0; w < 4 && k.weights[w].weight != 0.0f; ++w)
+			skinned.mWeights[w] = SoftBodySharedSettings::SkinWeight(k.weights[w].inv_bind_index, k.weights[w].weight);
+		skinned.NormalizeWeights();
+		s->mSkinnedConstraints.push_back(skinned);
+	}
+	for (uint32_t i = 0; i < d.num_rods; ++i)
+		s->mRodStretchShearConstraints.emplace_back(d.rods[i].vertices[0], d.rods[i].vertices[1], d.rods[i].compliance);
+	for (uint32_t i = 0; i < d.num_rod_bend_twists; ++i)
+		s->mRodBendTwistConstraints.emplace_back(d.rod_bend_twists[i].rods[0], d.rod_bend_twists[i].rods[1], d.rod_bend_twists[i].compliance);
+
 	// All of these derive from the rest pose, so recomputing the generated constraints changes nothing
 	s->CalculateEdgeLengths();
+	s->CalculateRodProperties();
+	s->CalculateSkinnedConstraintNormals();
 	s->CalculateBendConstraintConstants();
 	s->CalculateVolumeConstraintVolumes();
 	if (const char *error = ValidateLengths(*s))
@@ -251,6 +316,15 @@ JPC_SoftBodySharedSettings *JPC_SoftBodySharedSettings_CreateCube(uint32_t grid_
 	return ToC(s);
 }
 
+// Number of joint matrices skinning needs: Jolt indexes them with the inverse bind matrices' joint indices
+static uint32 SkinJointCount(const SoftBodySharedSettings &inSettings)
+{
+	uint32 count = 0;
+	for (const SoftBodySharedSettings::InvBind &b : inSettings.mInvBindMatrices)
+		count = max(count, b.mJointIndex + 1);
+	return count;
+}
+
 void JPC_SoftBodySharedSettings_AddRef(const JPC_SoftBodySharedSettings *settings) { ToJph(settings)->AddRef(); }
 void JPC_SoftBodySharedSettings_Release(const JPC_SoftBodySharedSettings *settings) { ToJph(settings)->Release(); }
 
@@ -263,6 +337,18 @@ void JPC_SoftBodySharedSettings_GetCounts(const JPC_SoftBodySharedSettings *sett
 	out->dihedral_bends = uint32_t(s->mDihedralBendConstraints.size());
 	out->volumes = uint32_t(s->mVolumeConstraints.size());
 	out->lras = uint32_t(s->mLRAConstraints.size());
+	out->skinned = uint32_t(s->mSkinnedConstraints.size());
+	out->rods = uint32_t(s->mRodStretchShearConstraints.size());
+	out->rod_bend_twists = uint32_t(s->mRodBendTwistConstraints.size());
+	out->skin_joints = SkinJointCount(*s);
+}
+
+uint32_t JPC_SoftBodySharedSettings_GetRods(const JPC_SoftBodySharedSettings *settings, JPC_SoftBodyRod *out_rods, uint32_t capacity)
+{
+	const Array<SoftBodySharedSettings::RodStretchShear> &rods = ToJph(settings)->mRodStretchShearConstraints;
+	for (uint32_t i = 0; i < capacity && i < rods.size(); ++i)
+		out_rods[i] = { { rods[i].mVertex[0], rods[i].mVertex[1] }, rods[i].mCompliance };
+	return uint32_t(rods.size());
 }
 
 uint32_t JPC_SoftBodySharedSettings_GetFaces(const JPC_SoftBodySharedSettings *settings, JPC_SoftBodyFace *out_faces, uint32_t capacity)
@@ -342,33 +428,52 @@ static bool ToJph(const JPC_BodyInterface *bi, const JPC_SoftBodyCreationSetting
 	return true;
 }
 
-JPC_BodyID JPC_BodyInterface_CreateSoftBody(JPC_BodyInterface *bi, const JPC_SoftBodyCreationSettings *settings)
+// Jolt starts skinned positions as NaN, which the skin constraints would spread into the vertices and the body's bounds
+// if the body is updated before it is first skinned. Skinning twice with identity joints makes the current and previous
+// positions finite (but not the bind pose: skin the body before its first update).
+static void SeedSkinState(Body &ioBody)
+{
+	SoftBodyMotionProperties *mp = static_cast<SoftBodyMotionProperties *>(ioBody.GetMotionProperties());
+	const SoftBodySharedSettings &settings = *mp->GetSettings();
+	if (settings.mSkinnedConstraints.empty())
+		return;
+	Array<Mat44> joints(max(SkinJointCount(settings), 1u), Mat44::sIdentity());
+	TempAllocatorMalloc temp;
+	for (int i = 0; i < 2; ++i)
+		mp->SkinVertices(ioBody.GetCenterOfMassTransform(), joints.data(), uint(joints.size()), false, temp);
+}
+
+static Body *CreateSoftBody(JPC_BodyInterface *bi, const JPC_SoftBodyCreationSettings &inSettings)
 {
 	SoftBodyCreationSettings s;
-	if (!ToJph(bi, *settings, s))
-		return JPC_BODY_ID_INVALID;
+	if (!ToJph(bi, inSettings, s))
+		return nullptr;
 	Body *body = ToJph(bi)->CreateSoftBody(s);
 	if (body == nullptr)
 	{
 		JPC_SetError("Out of bodies (max_bodies reached)");
-		return JPC_BODY_ID_INVALID;
+		return nullptr;
 	}
-	return ToC(body->GetID());
+	BodyLockWrite lock(*bi->mLockInterface, body->GetID());
+	SeedSkinState(lock.GetBody());
+	return body;
+}
+
+JPC_BodyID JPC_BodyInterface_CreateSoftBody(JPC_BodyInterface *bi, const JPC_SoftBodyCreationSettings *settings)
+{
+	Body *body = CreateSoftBody(bi, *settings);
+	return body != nullptr ? ToC(body->GetID()) : JPC_BODY_ID_INVALID;
 }
 
 JPC_BodyID JPC_BodyInterface_CreateAndAddSoftBody(JPC_BodyInterface *bi, const JPC_SoftBodyCreationSettings *settings, JPC_Activation activation)
 {
-	SoftBodyCreationSettings s;
-	if (!ToJph(bi, *settings, s))
+	Body *body = CreateSoftBody(bi, *settings);
+	if (body == nullptr)
 		return JPC_BODY_ID_INVALID;
-	BodyID id;
-	{
-		std::unique_lock lock(bi->mOwner->mBodyStateMutex);
-		id = ToJph(bi)->CreateAndAddSoftBody(s, ToJph(activation));
-		bi->mOwner->BumpStructure();
-	}
-	if (id.IsInvalid())
-		JPC_SetError("Out of bodies (max_bodies reached)");
+	BodyID id = body->GetID();
+	std::unique_lock lock(bi->mOwner->mBodyStateMutex);
+	ToJph(bi)->AddBody(id, ToJph(activation));
+	bi->mOwner->BumpStructure();
 	return ToC(id);
 }
 
@@ -498,4 +603,63 @@ float JPC_BodyInterface_GetSoftBodyVolume(const JPC_BodyInterface *bi, JPC_BodyI
 	BodyLockRead lock(*bi->mLockInterface, ToJph(id));
 	const SoftBodyMotionProperties *mp = lock.Succeeded() ? SoftBody(lock.GetBody()) : nullptr;
 	return mp != nullptr ? mp->GetVolume() : 0.0f;
+}
+
+uint32_t JPC_BodyInterface_GetSoftBodyRods(const JPC_BodyInterface *bi, JPC_BodyID id, uint32_t first, JPC_SoftBodyRodState *out_rods, uint32_t capacity)
+{
+	BodyLockRead lock(*bi->mLockInterface, ToJph(id));
+	const SoftBodyMotionProperties *mp = lock.Succeeded() ? SoftBody(lock.GetBody()) : nullptr;
+	if (mp == nullptr)
+		return 0;
+	uint32 num_rods = uint32(mp->GetSettings()->mRodStretchShearConstraints.size());
+	RMat44 com = lock.GetBody().GetCenterOfMassTransform();
+	Quat rotation = com.GetQuaternion();
+	for (uint64 i = first, o = 0; i < num_rods && o < capacity; ++i, ++o)
+		out_rods[o] = { ToC(rotation * mp->GetRodRotation(uint(i))), ToC(com.Multiply3x3(mp->GetRodAngularVelocity(uint(i)))) };
+	return num_rods;
+}
+
+bool JPC_BodyInterface_SkinSoftBody(JPC_BodyInterface *bi, JPC_BodyID id, const JPC_Mat44 *joint_matrices, uint32_t num_joints, bool hard_skin_all,
+									JPC_TempAllocator *temp_allocator)
+{
+	BodyLockWrite lock(*bi->mLockInterface, ToJph(id));
+	SoftBodyMotionProperties *mp = lock.Succeeded() ? SoftBody(lock.GetBody()) : nullptr;
+	if (mp == nullptr || mp->GetSettings()->mSkinnedConstraints.empty())
+	{
+		JPC_SetError("Body is not a soft body with skinned vertices");
+		return false;
+	}
+	if (num_joints < SkinJointCount(*mp->GetSettings()))
+	{
+		JPC_SetError("Fewer joint matrices than the skinning refers to");
+		return false;
+	}
+	// Jolt wants the joints relative to the body's center of mass
+	RMat44 com = lock.GetBody().GetCenterOfMassTransform();
+	Mat44 to_local = com.InversedRotationTranslation();
+	Array<Mat44> joints;
+	joints.reserve(num_joints);
+	for (uint32_t i = 0; i < num_joints; ++i)
+		joints.push_back(to_local * ToJph(joint_matrices[i]));
+	mp->SkinVertices(com, joints.data(), num_joints, hard_skin_all, ToJphRef(temp_allocator));
+	return true;
+}
+
+bool JPC_BodyInterface_SetSoftBodySkinConstraintsEnabled(JPC_BodyInterface *bi, JPC_BodyID id, bool enabled, float max_distance_multiplier)
+{
+	if (!(max_distance_multiplier >= 0.0f))
+	{
+		JPC_SetError("max_distance_multiplier must not be negative");
+		return false;
+	}
+	BodyLockWrite lock(*bi->mLockInterface, ToJph(id));
+	SoftBodyMotionProperties *mp = lock.Succeeded() ? SoftBody(lock.GetBody()) : nullptr;
+	if (mp == nullptr)
+	{
+		JPC_SetError("Body is not a soft body");
+		return false;
+	}
+	mp->SetEnableSkinConstraints(enabled);
+	mp->SetSkinnedMaxDistanceMultiplier(max_distance_multiplier);
+	return true;
 }

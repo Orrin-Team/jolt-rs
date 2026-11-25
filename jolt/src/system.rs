@@ -7,7 +7,7 @@ use jolt_sys as sys;
 
 use crate::constraint::{ConstraintEntry, ConstraintRegistry};
 use crate::character::Deferred;
-use crate::listener::{ActivationListenerHolder, ContactListenerHolder, PanicSlot, StepListenerHolder};
+use crate::listener::{ActivationListenerHolder, ContactListenerHolder, PanicSlot, SoftBodyContactListenerHolder, StepListenerHolder};
 use crate::{
     BodyActivationListener, BodyId, BodyInterface, ConstraintId, ConstraintMut, ConstraintSettings, ContactListener, Error,
     LayerConfig, Result, StepListener, Vec3,
@@ -307,6 +307,7 @@ impl Drop for SystemInner {
 pub struct PhysicsSystem {
     pub(crate) inner: Arc<SystemInner>,
     contact_listener: Option<Box<ContactListenerHolder>>,
+    soft_body_contact_listener: Option<Box<SoftBodyContactListenerHolder>>,
     activation_listener: Option<Box<ActivationListenerHolder>>,
     step_listener: Option<(Box<StepListenerHolder>, NonNull<sys::JPC_StepListener>)>,
     constraints: Mutex<ConstraintRegistry>,
@@ -333,7 +334,7 @@ impl PhysicsSystem {
         };
         let raw = NonNull::new(unsafe { sys::JPC_PhysicsSystem_Create(&raw_settings) }).ok_or_else(Error::last)?;
         let inner = Arc::new(SystemInner { raw, deferred: Mutex::default() });
-        Ok(Self { inner, contact_listener: None, activation_listener: None, step_listener: None, constraints: Mutex::default() })
+        Ok(Self { inner, contact_listener: None, soft_body_contact_listener: None, activation_listener: None, step_listener: None, constraints: Mutex::default() })
     }
 
     pub(crate) fn raw(&self) -> *mut sys::JPC_PhysicsSystem {
@@ -362,6 +363,9 @@ impl PhysicsSystem {
             holder.panic.resume();
         }
         if let Some(holder) = &self.activation_listener {
+            holder.panic.resume();
+        }
+        if let Some(holder) = &self.soft_body_contact_listener {
             holder.panic.resume();
         }
         if let Some((holder, _)) = &self.step_listener {
@@ -459,6 +463,20 @@ impl PhysicsSystem {
     pub fn clear_contact_listener(&mut self) {
         unsafe { sys::JPC_PhysicsSystem_SetContactListener(self.raw(), std::ptr::null(), std::ptr::null_mut()) };
         self.contact_listener = None;
+    }
+
+    /// Receives contacts of soft bodies, which the [`ContactListener`] doesn't see.
+    pub fn set_soft_body_contact_listener(&mut self, listener: impl crate::SoftBodyContactListener) {
+        let holder = Box::new(SoftBodyContactListenerHolder { listener: Box::new(listener), panic: PanicSlot::default() });
+        let fns = SoftBodyContactListenerHolder::fns();
+        let user_data = (&*holder as *const SoftBodyContactListenerHolder).cast_mut().cast();
+        unsafe { sys::JPC_PhysicsSystem_SetSoftBodyContactListener(self.raw(), &fns, user_data) };
+        self.soft_body_contact_listener = Some(holder);
+    }
+
+    pub fn clear_soft_body_contact_listener(&mut self) {
+        unsafe { sys::JPC_PhysicsSystem_SetSoftBodyContactListener(self.raw(), std::ptr::null(), std::ptr::null_mut()) };
+        self.soft_body_contact_listener = None;
     }
 
     pub fn set_body_activation_listener(&mut self, listener: impl BodyActivationListener) {
@@ -566,6 +584,7 @@ impl Drop for PhysicsSystem {
         self.clear_step_listener();
         unsafe {
             sys::JPC_PhysicsSystem_SetContactListener(raw, std::ptr::null(), std::ptr::null_mut());
+            sys::JPC_PhysicsSystem_SetSoftBodyContactListener(raw, std::ptr::null(), std::ptr::null_mut());
             sys::JPC_PhysicsSystem_SetBodyActivationListener(raw, std::ptr::null(), std::ptr::null_mut());
         }
         // Nothing can update the system anymore, so dropped characters can go now. The native system itself is

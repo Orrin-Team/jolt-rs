@@ -75,8 +75,8 @@ pub use error::{Error, Result};
 pub use group::{CollisionGroup, GroupFilter, GroupFilterTable};
 pub use layers::{BroadPhaseLayer, LayerConfig, ObjectLayer};
 pub use listener::{
-    BodyActivationListener, CollideShapeResult, ContactListener, ContactManifold, ContactSettings, StepBodies, StepContext, StepListener,
-    SubShapeIdPair, ValidateResult,
+    BodyActivationListener, CollideShapeResult, ContactListener, ContactManifold, ContactSettings, SoftBodyContactListener,
+    SoftBodyContactSettings, SoftBodyManifold, SoftBodyVertexContact, StepBodies, StepContext, StepListener, SubShapeIdPair, ValidateResult,
 };
 pub use material::PhysicsMaterial;
 pub use vehicle::{
@@ -93,8 +93,9 @@ pub use ragdoll::{JointState, Ragdoll, RagdollConstraint, RagdollJoint, RagdollO
 pub use shape::{CompoundSubShape, DEFAULT_CONVEX_RADIUS, MassProperties, MutableCompound, Shape, ShapeSubType, ShapeType};
 pub use snapshot::{PhysicsSnapshot, StateParts};
 pub use soft_body::{
-    BendType, LraType, SoftBodyCounts, SoftBodyCreationSettings, SoftBodyDesc, SoftBodyDihedralBend, SoftBodyEdge, SoftBodyFace, SoftBodyLra,
-    SoftBodyProperties, SoftBodySharedSettings, SoftBodyVertex, SoftBodyVertexState, SoftBodyVolume, VertexAttributes,
+    BendType, LraType, SkinWeight, SoftBodyCounts, SoftBodyCreationSettings, SoftBodyDesc, SoftBodyDihedralBend, SoftBodyEdge, SoftBodyFace,
+    SoftBodyInvBind, SoftBodyLra, SoftBodyProperties, SoftBodyRod, SoftBodyRodBendTwist, SoftBodyRodState, SoftBodySharedSettings,
+    SoftBodySkinned, SoftBodyVertex, SoftBodyVertexState, SoftBodyVolume, VertexAttributes,
 };
 pub use system::{JobSystem, PhysicsSettings, PhysicsSystem, PhysicsSystemSettings, TempAllocator, UpdateError};
 
