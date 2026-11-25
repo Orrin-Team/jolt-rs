@@ -3334,6 +3334,238 @@ unsafe extern "C" {
         user_data: *mut ::core::ffi::c_void,
     );
 }
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct JPC_HeightFieldSettings {
+    pub samples: *const f32,
+    pub sample_count: u32,
+    pub offset: JPC_Vec3,
+    pub scale: JPC_Vec3,
+    pub min_height_value: f32,
+    pub max_height_value: f32,
+    pub block_size: u32,
+    pub bits_per_sample: u32,
+    pub material_indices: *const u8,
+    pub materials: *const *const JPC_PhysicsMaterial,
+    pub num_materials: u32,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of JPC_HeightFieldSettings"]
+        [::core::mem::size_of::<JPC_HeightFieldSettings>() - 80usize];
+    ["Alignment of JPC_HeightFieldSettings"]
+        [::core::mem::align_of::<JPC_HeightFieldSettings>() - 8usize];
+    ["Offset of field: JPC_HeightFieldSettings::samples"]
+        [::core::mem::offset_of!(JPC_HeightFieldSettings, samples) - 0usize];
+    ["Offset of field: JPC_HeightFieldSettings::sample_count"]
+        [::core::mem::offset_of!(JPC_HeightFieldSettings, sample_count) - 8usize];
+    ["Offset of field: JPC_HeightFieldSettings::offset"]
+        [::core::mem::offset_of!(JPC_HeightFieldSettings, offset) - 12usize];
+    ["Offset of field: JPC_HeightFieldSettings::scale"]
+        [::core::mem::offset_of!(JPC_HeightFieldSettings, scale) - 24usize];
+    ["Offset of field: JPC_HeightFieldSettings::min_height_value"]
+        [::core::mem::offset_of!(JPC_HeightFieldSettings, min_height_value) - 36usize];
+    ["Offset of field: JPC_HeightFieldSettings::max_height_value"]
+        [::core::mem::offset_of!(JPC_HeightFieldSettings, max_height_value) - 40usize];
+    ["Offset of field: JPC_HeightFieldSettings::block_size"]
+        [::core::mem::offset_of!(JPC_HeightFieldSettings, block_size) - 44usize];
+    ["Offset of field: JPC_HeightFieldSettings::bits_per_sample"]
+        [::core::mem::offset_of!(JPC_HeightFieldSettings, bits_per_sample) - 48usize];
+    ["Offset of field: JPC_HeightFieldSettings::material_indices"]
+        [::core::mem::offset_of!(JPC_HeightFieldSettings, material_indices) - 56usize];
+    ["Offset of field: JPC_HeightFieldSettings::materials"]
+        [::core::mem::offset_of!(JPC_HeightFieldSettings, materials) - 64usize];
+    ["Offset of field: JPC_HeightFieldSettings::num_materials"]
+        [::core::mem::offset_of!(JPC_HeightFieldSettings, num_materials) - 72usize];
+};
+impl Default for JPC_HeightFieldSettings {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+unsafe extern "C" {
+    pub fn JPC_HeightFieldSettings_SetDefault(settings: *mut JPC_HeightFieldSettings);
+}
+unsafe extern "C" {
+    pub fn JPC_HeightFieldShape_CreateWithSettings(
+        settings: *const JPC_HeightFieldSettings,
+    ) -> *mut JPC_Shape;
+}
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone)]
+pub struct JPC_HeightFieldInfo {
+    pub sample_count: u32,
+    pub block_size: u32,
+    pub min_height_value: f32,
+    pub max_height_value: f32,
+    pub num_materials: u32,
+    pub editable: bool,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of JPC_HeightFieldInfo"][::core::mem::size_of::<JPC_HeightFieldInfo>() - 24usize];
+    ["Alignment of JPC_HeightFieldInfo"][::core::mem::align_of::<JPC_HeightFieldInfo>() - 4usize];
+    ["Offset of field: JPC_HeightFieldInfo::sample_count"]
+        [::core::mem::offset_of!(JPC_HeightFieldInfo, sample_count) - 0usize];
+    ["Offset of field: JPC_HeightFieldInfo::block_size"]
+        [::core::mem::offset_of!(JPC_HeightFieldInfo, block_size) - 4usize];
+    ["Offset of field: JPC_HeightFieldInfo::min_height_value"]
+        [::core::mem::offset_of!(JPC_HeightFieldInfo, min_height_value) - 8usize];
+    ["Offset of field: JPC_HeightFieldInfo::max_height_value"]
+        [::core::mem::offset_of!(JPC_HeightFieldInfo, max_height_value) - 12usize];
+    ["Offset of field: JPC_HeightFieldInfo::num_materials"]
+        [::core::mem::offset_of!(JPC_HeightFieldInfo, num_materials) - 16usize];
+    ["Offset of field: JPC_HeightFieldInfo::editable"]
+        [::core::mem::offset_of!(JPC_HeightFieldInfo, editable) - 20usize];
+};
+unsafe extern "C" {
+    pub fn JPC_HeightFieldShape_GetInfo(
+        shape: *const JPC_Shape,
+        out_info: *mut JPC_HeightFieldInfo,
+    ) -> bool;
+}
+unsafe extern "C" {
+    pub fn JPC_HeightFieldShape_GetPosition(
+        shape: *const JPC_Shape,
+        x: u32,
+        y: u32,
+        out_position: *mut JPC_Vec3,
+        out_no_collision: *mut bool,
+    ) -> bool;
+}
+unsafe extern "C" {
+    pub fn JPC_HeightFieldShape_GetHeights(
+        shape: *const JPC_Shape,
+        x: u32,
+        y: u32,
+        size_x: u32,
+        size_y: u32,
+        out_heights: *mut f32,
+    ) -> bool;
+}
+unsafe extern "C" {
+    pub fn JPC_HeightFieldShape_GetMaterialIndices(
+        shape: *const JPC_Shape,
+        x: u32,
+        y: u32,
+        size_x: u32,
+        size_y: u32,
+        out_indices: *mut u8,
+    ) -> bool;
+}
+unsafe extern "C" {
+    pub fn JPC_HeightFieldShape_SetHeights(
+        shape: *mut JPC_Shape,
+        x: u32,
+        y: u32,
+        size_x: u32,
+        size_y: u32,
+        heights: *const f32,
+        temp_allocator: *mut JPC_TempAllocator,
+    ) -> bool;
+}
+unsafe extern "C" {
+    pub fn JPC_HeightFieldShape_SetMaterialIndices(
+        shape: *mut JPC_Shape,
+        x: u32,
+        y: u32,
+        size_x: u32,
+        size_y: u32,
+        indices: *const u8,
+        temp_allocator: *mut JPC_TempAllocator,
+    ) -> bool;
+}
+pub type JPC_HeightFieldEditFn = ::core::option::Option<
+    unsafe extern "C" fn(user_data: *mut ::core::ffi::c_void, height_field: *mut JPC_Shape),
+>;
+unsafe extern "C" {
+    pub fn JPC_BodyInterface_ModifyHeightField(
+        bi: *mut JPC_BodyInterface,
+        id: JPC_BodyID,
+        fn_: JPC_HeightFieldEditFn,
+        user_data: *mut ::core::ffi::c_void,
+    ) -> bool;
+}
+unsafe extern "C" {
+    pub fn JPC_BodyInterface_ActivateBodiesInAABox(
+        bi: *mut JPC_BodyInterface,
+        box_: *const JPC_AABox,
+        filter: *const JPC_QueryFilter,
+    );
+}
+pub type JPC_TriangleCollectorFn = ::core::option::Option<
+    unsafe extern "C" fn(
+        user_data: *mut ::core::ffi::c_void,
+        vertices: *const JPC_Vec3,
+        materials: *const *const JPC_PhysicsMaterial,
+        count: u32,
+    ) -> bool,
+>;
+unsafe extern "C" {
+    pub fn JPC_Shape_GetTriangles(
+        shape: *const JPC_Shape,
+        position_com: JPC_RVec3,
+        rotation: JPC_Quat,
+        scale: JPC_Vec3,
+        box_: *const JPC_AABox,
+        collector: JPC_TriangleCollectorFn,
+        user_data: *mut ::core::ffi::c_void,
+    );
+}
+unsafe extern "C" {
+    pub fn JPC_Shape_CastRay(
+        shape: *const JPC_Shape,
+        position_com: JPC_RVec3,
+        rotation: JPC_Quat,
+        scale: JPC_Vec3,
+        origin: JPC_RVec3,
+        direction: JPC_Vec3,
+        settings: *const JPC_RayCastSettings,
+        out_hit: *mut JPC_RayCastHit,
+    ) -> bool;
+}
+unsafe extern "C" {
+    pub fn JPC_Shape_ContainsPoint(
+        shape: *const JPC_Shape,
+        position_com: JPC_RVec3,
+        rotation: JPC_Quat,
+        scale: JPC_Vec3,
+        point: JPC_RVec3,
+    ) -> bool;
+}
+unsafe extern "C" {
+    pub fn JPC_Shape_CollideShape(
+        shape: *const JPC_Shape,
+        position_com: JPC_RVec3,
+        rotation: JPC_Quat,
+        scale: JPC_Vec3,
+        query_shape: *const JPC_Shape,
+        query_scale: JPC_Vec3,
+        query_transform: *const JPC_RMat44,
+        settings: *const JPC_CollideShapeSettings,
+        collector: JPC_ShapeCollectorFn,
+        user_data: *mut ::core::ffi::c_void,
+    );
+}
+unsafe extern "C" {
+    pub fn JPC_Shape_CastShape(
+        shape: *const JPC_Shape,
+        position_com: JPC_RVec3,
+        rotation: JPC_Quat,
+        scale: JPC_Vec3,
+        query_shape: *const JPC_Shape,
+        query_scale: JPC_Vec3,
+        query_transform: *const JPC_RMat44,
+        direction: JPC_Vec3,
+        settings: *const JPC_ShapeCastSettings,
+        collector: JPC_ShapeCollectorFn,
+        user_data: *mut ::core::ffi::c_void,
+    );
+}
 unsafe extern "C" {
     pub fn JPC_PhysicsSystem_SaveState(
         system: *const JPC_PhysicsSystem,

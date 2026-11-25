@@ -113,7 +113,7 @@ impl Default for CollideShapeSettings {
 }
 
 impl CollideShapeSettings {
-    fn to_sys(self) -> sys::JPC_CollideShapeSettings {
+    pub(crate) fn to_sys(self) -> sys::JPC_CollideShapeSettings {
         sys::JPC_CollideShapeSettings {
             max_separation_distance: self.max_separation_distance,
             back_face_mode: self.back_face_mode.to_sys(),
@@ -162,7 +162,7 @@ impl Default for ShapeCastSettings {
 }
 
 impl ShapeCastSettings {
-    fn to_sys(self) -> sys::JPC_ShapeCastSettings {
+    pub(crate) fn to_sys(self) -> sys::JPC_ShapeCastSettings {
         sys::JPC_ShapeCastSettings {
             back_face_mode_triangles: self.back_face_mode_triangles.to_sys(),
             back_face_mode_convex: self.back_face_mode_convex.to_sys(),
@@ -193,7 +193,7 @@ pub struct RayCastSettings {
 }
 
 impl RayCastSettings {
-    fn to_sys(self) -> sys::JPC_RayCastSettings {
+    pub(crate) fn to_sys(self) -> sys::JPC_RayCastSettings {
         sys::JPC_RayCastSettings {
             back_face_mode_triangles: self.back_face_mode_triangles.to_sys(),
             back_face_mode_convex: self.back_face_mode_convex.to_sys(),

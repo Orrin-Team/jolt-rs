@@ -5,7 +5,9 @@ use std::ptr::NonNull;
 
 use jolt_sys as sys;
 
-use crate::{AABox, Error, Mat44, PhysicsMaterial, Quat, Result, SubShapeId, Vec3};
+use crate::{
+    AABox, CollideShapeSettings, Error, Mat44, PhysicsMaterial, Quat, RayCastHit, RayCastSettings, Result, ShapeCastSettings, ShapeHit, SubShapeId, Vec3,
+};
 
 /// Default convex radius Jolt uses to round off the corners of boxes and cylinders.
 pub const DEFAULT_CONVEX_RADIUS: f32 = sys::JPC_DEFAULT_CONVEX_RADIUS as f32;
@@ -466,6 +468,173 @@ impl Shape {
     pub unsafe fn from_bytes(bytes: &[u8]) -> Result<Self> {
         crate::ensure_init();
         Self::from_raw_or_error(unsafe { sys::JPC_Shape_RestoreBinary(bytes.as_ptr().cast(), bytes.len()) })
+    }
+}
+
+/// A triangle from [`Shape::triangles`].
+#[derive(Clone, Debug, PartialEq)]
+pub struct ShapeTriangle {
+    pub vertices: [Vec3; 3],
+    /// `None` for the default material.
+    pub material: Option<PhysicsMaterial>,
+}
+
+/// Where a shape is for [`Shape::triangles`] and the queries against a single shape.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ShapePlacement {
+    /// Position of the shape's center of mass.
+    pub position: Vec3,
+    pub rotation: Quat,
+    pub scale: Vec3,
+}
+
+impl ShapePlacement {
+    pub fn new(position: Vec3, rotation: Quat) -> Self {
+        Self { position, rotation, scale: Vec3::splat(1.0) }
+    }
+}
+
+impl Default for ShapePlacement {
+    fn default() -> Self {
+        Self::new(Vec3::ZERO, Quat::IDENTITY)
+    }
+}
+
+unsafe extern "C" fn collect_hit(user_data: *mut c_void, hit: *const sys::JPC_ShapeHit) -> bool {
+    // SAFETY: user_data is the Vec of the calling function; the hit is valid during the call.
+    unsafe { (*user_data.cast::<Vec<ShapeHit>>()).push(ShapeHit::from(&*hit)) };
+    true
+}
+
+impl Shape {
+    /// Triangulates the shape (convex shapes approximately) as placed, optionally only the part inside `bounds`: for
+    /// rendering, navigation meshes and the like.
+    pub fn triangles(&self, placement: &ShapePlacement, bounds: Option<AABox>) -> Vec<ShapeTriangle> {
+        unsafe extern "C" fn collect(
+            user_data: *mut c_void,
+            vertices: *const sys::JPC_Vec3,
+            materials: *const *const sys::JPC_PhysicsMaterial,
+            count: u32,
+        ) -> bool {
+            // SAFETY: user_data is the Vec below; vertices holds 3 * count and materials count entries.
+            let out = unsafe { &mut *user_data.cast::<Vec<ShapeTriangle>>() };
+            let (vertices, materials) =
+                unsafe { (std::slice::from_raw_parts(vertices, 3 * count as usize), std::slice::from_raw_parts(materials, count as usize)) };
+            for (v, &m) in vertices.chunks_exact(3).zip(materials) {
+                out.push(ShapeTriangle { vertices: [v[0].into(), v[1].into(), v[2].into()], material: PhysicsMaterial::from_borrowed(m) });
+            }
+            true
+        }
+        let mut out: Vec<ShapeTriangle> = Vec::new();
+        let raw_bounds = bounds.map(sys::JPC_AABox::from);
+        unsafe {
+            sys::JPC_Shape_GetTriangles(
+                self.as_raw(),
+                placement.position.into(),
+                placement.rotation.into(),
+                placement.scale.into(),
+                raw_bounds.as_ref().map_or(std::ptr::null(), |b| b as *const _),
+                Some(collect),
+                (&mut out as *mut Vec<ShapeTriangle>).cast(),
+            )
+        };
+        out
+    }
+
+    /// Casts a ray (`direction` includes its length) against this shape alone, without a physics system. The hit's
+    /// body is [`BodyId::INVALID`](crate::BodyId::INVALID).
+    pub fn cast_ray(&self, placement: &ShapePlacement, origin: Vec3, direction: Vec3, settings: &RayCastSettings) -> Option<RayCastHit> {
+        let raw_settings = settings.to_sys();
+        let mut hit = sys::JPC_RayCastHit::default();
+        let found = unsafe {
+            sys::JPC_Shape_CastRay(
+                self.as_raw(),
+                placement.position.into(),
+                placement.rotation.into(),
+                placement.scale.into(),
+                origin.into(),
+                direction.into(),
+                &raw_settings,
+                &mut hit,
+            )
+        };
+        if !found {
+            return None;
+        }
+        let mut result = RayCastHit::from(&hit);
+        // The C side handed out its own reference for the material; from() took another.
+        if !hit.material.is_null() {
+            unsafe { sys::JPC_PhysicsMaterial_Release(hit.material) };
+        }
+        result.body_id = crate::BodyId::INVALID;
+        Some(result)
+    }
+
+    /// Whether `point` is inside this shape as placed.
+    pub fn contains_point(&self, placement: &ShapePlacement, point: Vec3) -> bool {
+        unsafe { sys::JPC_Shape_ContainsPoint(self.as_raw(), placement.position.into(), placement.rotation.into(), placement.scale.into(), point.into()) }
+    }
+
+    /// Where `query` (scaled, with its center of mass at `query_transform`) overlaps this shape as placed. Shape 1 of
+    /// the hits is `query`.
+    pub fn collide_shape(
+        &self,
+        placement: &ShapePlacement,
+        query: &Shape,
+        query_scale: Vec3,
+        query_transform: &Mat44,
+        settings: &CollideShapeSettings,
+    ) -> Vec<ShapeHit> {
+        let transform: sys::JPC_Mat44 = (*query_transform).into();
+        let raw_settings = settings.to_sys();
+        let mut hits: Vec<ShapeHit> = Vec::new();
+        unsafe {
+            sys::JPC_Shape_CollideShape(
+                self.as_raw(),
+                placement.position.into(),
+                placement.rotation.into(),
+                placement.scale.into(),
+                query.as_raw(),
+                query_scale.into(),
+                &transform,
+                &raw_settings,
+                Some(collect_hit),
+                (&mut hits as *mut Vec<ShapeHit>).cast(),
+            )
+        };
+        hits
+    }
+
+    /// Sweeps `query` from `query_transform` along `direction` against this shape as placed.
+    #[allow(clippy::too_many_arguments)]
+    pub fn cast_shape(
+        &self,
+        placement: &ShapePlacement,
+        query: &Shape,
+        query_scale: Vec3,
+        query_transform: &Mat44,
+        direction: Vec3,
+        settings: &ShapeCastSettings,
+    ) -> Vec<ShapeHit> {
+        let transform: sys::JPC_Mat44 = (*query_transform).into();
+        let raw_settings = settings.to_sys();
+        let mut hits: Vec<ShapeHit> = Vec::new();
+        unsafe {
+            sys::JPC_Shape_CastShape(
+                self.as_raw(),
+                placement.position.into(),
+                placement.rotation.into(),
+                placement.scale.into(),
+                query.as_raw(),
+                query_scale.into(),
+                &transform,
+                direction.into(),
+                &raw_settings,
+                Some(collect_hit),
+                (&mut hits as *mut Vec<ShapeHit>).cast(),
+            )
+        };
+        hits
     }
 }
 

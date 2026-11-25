@@ -323,6 +323,12 @@ impl From<sys::JPC_AABox> for AABox {
     }
 }
 
+impl From<AABox> for sys::JPC_AABox {
+    fn from(b: AABox) -> Self {
+        Self { min: b.min.into(), max: b.max.into() }
+    }
+}
+
 #[cfg(feature = "glam")]
 mod glam_impls {
     use super::{Mat44, Quat, Vec3};

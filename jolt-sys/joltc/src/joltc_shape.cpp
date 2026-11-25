@@ -581,3 +581,261 @@ JPC_Shape *JPC_Shape_RestoreBinary(const void *data, size_t size)
 	shape->AddRef();
 	return ToC(const_cast<Shape *>(shape.GetPtr()));
 }
+
+// ---------------------------------------------------------------------------
+// Height fields
+// ---------------------------------------------------------------------------
+
+void JPC_HeightFieldSettings_SetDefault(JPC_HeightFieldSettings *out)
+{
+	HeightFieldShapeSettings s;
+	*out = { };
+	out->offset = ToC(s.mOffset);
+	out->scale = ToC(s.mScale);
+	out->min_height_value = s.mMinHeightValue;
+	out->max_height_value = s.mMaxHeightValue;
+	out->block_size = s.mBlockSize;
+	out->bits_per_sample = s.mBitsPerSample;
+}
+
+JPC_Shape *JPC_HeightFieldShape_CreateWithSettings(const JPC_HeightFieldSettings *in)
+{
+	if (in->sample_count < 2 || in->samples == nullptr)
+	{
+		JPC_SetError("Height field needs samples and a sample count of at least 2");
+		return nullptr;
+	}
+	PhysicsMaterialList materials;
+	if (in->num_materials > 0)
+	{
+		if (in->num_materials > 256 || in->materials == nullptr || in->material_indices == nullptr)
+		{
+			JPC_SetError("Height field needs 1 to 256 materials and material indices when it has materials");
+			return nullptr;
+		}
+		for (uint32_t i = 0; i < in->num_materials; ++i)
+		{
+			if (in->materials[i] == nullptr)
+			{
+				JPC_SetError("Height field material is null");
+				return nullptr;
+			}
+			materials.push_back(ToJph(in->materials[i]));
+		}
+		uint64 num_cells = uint64(in->sample_count - 1) * (in->sample_count - 1);
+		for (uint64 i = 0; i < num_cells; ++i)
+			if (in->material_indices[i] >= in->num_materials)
+			{
+				JPC_SetError("Height field material index out of range");
+				return nullptr;
+			}
+	}
+	HeightFieldShapeSettings settings(in->samples, ToJph(in->offset), ToJph(in->scale), in->sample_count, in->num_materials > 0 ? in->material_indices : nullptr, materials);
+	settings.SetEmbedded();
+	settings.mBlockSize = in->block_size;
+	settings.mBitsPerSample = in->bits_per_sample;
+	if (in->min_height_value <= in->max_height_value)
+	{
+		settings.mMinHeightValue = in->min_height_value;
+		settings.mMaxHeightValue = in->max_height_value;
+	}
+	ShapeSettings::ShapeResult result = settings.Create();
+	if (result.HasError())
+	{
+		JPC_SetError(result.GetError().c_str());
+		return nullptr;
+	}
+	Shape *shape = result.Get().GetPtr();
+	shape->AddRef();
+	return ToC(shape);
+}
+
+static const HeightFieldShape *AsHeightField(const JPC_Shape *inShape)
+{
+	const Shape *s = ToJph(inShape);
+	if (s->GetSubType() == EShapeSubType::HeightField)
+		return static_cast<const HeightFieldShape *>(s);
+	JPC_SetError("Shape is not a height field");
+	return nullptr;
+}
+
+// A height field created entirely of holes allocates no samples, and Jolt's editing assumes there are some. Its memory
+// statistics then only count the shape object itself (its material list is cleared too).
+static bool IsEditable(const HeightFieldShape &inShape)
+{
+	bool has_samples = inShape.GetStats().mSizeBytes > sizeof(HeightFieldShape) + inShape.GetMaterialList().size() * sizeof(RefConst<PhysicsMaterial>);
+	return has_samples && inShape.GetMaxHeightValue() > inShape.GetMinHeightValue();
+}
+
+bool JPC_HeightFieldShape_GetInfo(const JPC_Shape *shape, JPC_HeightFieldInfo *out)
+{
+	const HeightFieldShape *h = AsHeightField(shape);
+	if (h == nullptr)
+		return false;
+	out->sample_count = h->GetSampleCount();
+	out->block_size = h->GetBlockSize();
+	out->min_height_value = h->GetMinHeightValue();
+	out->max_height_value = h->GetMaxHeightValue();
+	out->num_materials = uint32_t(h->GetMaterialList().size());
+	out->editable = IsEditable(*h);
+	return true;
+}
+
+bool JPC_HeightFieldShape_GetPosition(const JPC_Shape *shape, uint32_t x, uint32_t y, JPC_Vec3 *out_position, bool *out_no_collision)
+{
+	const HeightFieldShape *h = AsHeightField(shape);
+	if (h == nullptr)
+		return false;
+	if (x >= h->GetSampleCount() || y >= h->GetSampleCount())
+	{
+		JPC_SetError("Sample out of range");
+		return false;
+	}
+	*out_position = ToC(h->GetPosition(x, y));
+	*out_no_collision = h->IsNoCollision(x, y);
+	return true;
+}
+
+// Jolt only asserts these
+static bool CheckSampleRegion(const HeightFieldShape &inShape, uint32_t inX, uint32_t inY, uint32_t inSizeX, uint32_t inSizeY)
+{
+	uint32 n = inShape.GetSampleCount(), b = inShape.GetBlockSize();
+	if (inX % b != 0 || inY % b != 0 || inSizeX % b != 0 || inSizeY % b != 0 || inX >= n || inY >= n
+		|| uint64(inX) + inSizeX > n || uint64(inY) + inSizeY > n)
+	{
+		JPC_SetError("Height field region must be in range and aligned to the block size");
+		return false;
+	}
+	return true;
+}
+
+static bool CheckCellRegion(const HeightFieldShape &inShape, uint32_t inX, uint32_t inY, uint32_t inSizeX, uint32_t inSizeY)
+{
+	uint32 n = inShape.GetSampleCount();
+	if (inX >= n - 1 || inY >= n - 1 || uint64(inX) + inSizeX >= n || uint64(inY) + inSizeY >= n)
+	{
+		JPC_SetError("Height field cell region out of range");
+		return false;
+	}
+	return true;
+}
+
+bool JPC_HeightFieldShape_GetHeights(const JPC_Shape *shape, uint32_t x, uint32_t y, uint32_t size_x, uint32_t size_y, float *out_heights)
+{
+	const HeightFieldShape *h = AsHeightField(shape);
+	if (h == nullptr || !CheckSampleRegion(*h, x, y, size_x, size_y))
+		return false;
+	h->GetHeights(x, y, size_x, size_y, out_heights, intptr_t(size_x));
+	return true;
+}
+
+bool JPC_HeightFieldShape_GetMaterialIndices(const JPC_Shape *shape, uint32_t x, uint32_t y, uint32_t size_x, uint32_t size_y, uint8_t *out_indices)
+{
+	const HeightFieldShape *h = AsHeightField(shape);
+	if (h == nullptr || !CheckCellRegion(*h, x, y, size_x, size_y))
+		return false;
+	h->GetMaterials(x, y, size_x, size_y, out_indices, intptr_t(size_x));
+	return true;
+}
+
+bool JPC_HeightFieldShape_SetHeights(JPC_Shape *shape, uint32_t x, uint32_t y, uint32_t size_x, uint32_t size_y, const float *heights, JPC_TempAllocator *temp_allocator)
+{
+	const HeightFieldShape *h = AsHeightField(shape);
+	if (h == nullptr || !CheckSampleRegion(*h, x, y, size_x, size_y))
+		return false;
+	if (!IsEditable(*h))
+	{
+		JPC_SetError("Height field has no samples to edit (it was created entirely of holes) or no height range");
+		return false;
+	}
+	const_cast<HeightFieldShape *>(h)->SetHeights(x, y, size_x, size_y, heights, intptr_t(size_x), ToJphRef(temp_allocator));
+	return true;
+}
+
+bool JPC_HeightFieldShape_SetMaterialIndices(JPC_Shape *shape, uint32_t x, uint32_t y, uint32_t size_x, uint32_t size_y, const uint8_t *indices, JPC_TempAllocator *temp_allocator)
+{
+	const HeightFieldShape *h = AsHeightField(shape);
+	if (h == nullptr || !CheckCellRegion(*h, x, y, size_x, size_y))
+		return false;
+	// Jolt remaps the indices through a table the size of the material list
+	size_t num_materials = h->GetMaterialList().size();
+	for (uint64 i = 0, n = uint64(size_x) * size_y; i < n; ++i)
+		if (indices[i] >= num_materials)
+		{
+			JPC_SetError("Height field material index out of range");
+			return false;
+		}
+	if (!const_cast<HeightFieldShape *>(h)->SetMaterials(x, y, size_x, size_y, indices, intptr_t(size_x), nullptr, ToJphRef(temp_allocator)))
+	{
+		JPC_SetError("Height field would need more than 256 materials");
+		return false;
+	}
+	return true;
+}
+
+bool JPC_BodyInterface_ModifyHeightField(JPC_BodyInterface *bi, JPC_BodyID id, JPC_HeightFieldEditFn fn, void *user_data)
+{
+	BodyLockWrite lock(*bi->mLockInterface, ToJph(id));
+	if (!lock.Succeeded())
+	{
+		JPC_SetError("Body does not exist");
+		return false;
+	}
+	const Shape *shape = lock.GetBody().GetShape();
+	if (shape->GetSubType() != EShapeSubType::HeightField)
+	{
+		JPC_SetError("Body shape is not a height field");
+		return false;
+	}
+	Vec3 previous_com = shape->GetCenterOfMass();
+	HeightFieldShape *height_field = const_cast<HeightFieldShape *>(static_cast<const HeightFieldShape *>(shape));
+	// Anyone else holding the shape may be reading it right now: edit a copy
+	Ref<HeightFieldShape> copy;
+	if (height_field->GetRefCount() > 1)
+	{
+		copy = height_field->Clone();
+		height_field = copy.GetPtr();
+	}
+	fn(user_data, ToC(height_field));
+	const BodyInterface &no_lock = bi->mOwner->mSystem.GetBodyInterfaceNoLock();
+	if (copy != nullptr)
+		no_lock.SetShape(ToJph(id), copy, false, EActivation::DontActivate);
+	else
+		no_lock.NotifyShapeChanged(ToJph(id), previous_com, false, EActivation::DontActivate);
+	bi->mOwner->BumpStructure();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// Triangles
+// ---------------------------------------------------------------------------
+
+void JPC_Shape_GetTriangles(const JPC_Shape *shape, JPC_RVec3 position_com, JPC_Quat rotation, JPC_Vec3 scale, const JPC_AABox *box,
+							JPC_TriangleCollectorFn collector, void *user_data)
+{
+	const Shape *s = ToJph(shape);
+	AABox bounds = box != nullptr ? AABox(ToJph(box->min), ToJph(box->max)) : AABox::sBiggest();
+	Quat q = ToJph(rotation);
+	q = q.LengthSq() > 1.0e-12f ? q.Normalized() : Quat::sIdentity();
+
+	Shape::GetTrianglesContext context;
+	s->GetTrianglesStart(context, bounds, ToJph(position_com), q, s->MakeScaleValid(ToJph(scale)));
+
+	constexpr int cBatch = max(Shape::cGetTrianglesMinTrianglesRequested, 256);
+	Float3 vertices[3 * cBatch];
+	const PhysicsMaterial *materials[cBatch];
+	JPC_Vec3 out_vertices[3 * cBatch];
+	const JPC_PhysicsMaterial *out_materials[cBatch];
+	for (;;)
+	{
+		int count = s->GetTrianglesNext(context, cBatch, vertices, materials);
+		if (count <= 0)
+			break;
+		for (int i = 0; i < 3 * count; ++i)
+			out_vertices[i] = { vertices[i].x, vertices[i].y, vertices[i].z };
+		for (int i = 0; i < count; ++i)
+			out_materials[i] = ToC(materials[i]);
+		if (!collector(user_data, out_vertices, out_materials, uint32_t(count)))
+			break;
+	}
+}

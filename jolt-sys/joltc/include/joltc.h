@@ -1346,6 +1346,98 @@ JPC_API void JPC_PhysicsSystem_CastShape(const JPC_PhysicsSystem *system, const 
                                          const JPC_QueryFilter *filter, JPC_ShapeCollectorFn collector, void *user_data);
 
 /* ------------------------------------------------------------------------- */
+/* Height fields                                                              */
+/* ------------------------------------------------------------------------- */
+
+typedef struct JPC_HeightFieldSettings {
+    /* sample_count * sample_count heights, row by row; FLT_MAX makes a hole. */
+    const float *samples;
+    uint32_t sample_count;
+    JPC_Vec3 offset;
+    JPC_Vec3 scale;
+    /* Range heights can be edited within later. min > max (the default) takes the range of the samples. */
+    float min_height_value;
+    float max_height_value;
+    /* 2 to 8; samples are compressed and culled per block, and edits work on whole blocks. */
+    uint32_t block_size;
+    /* 1 to 16. */
+    uint32_t bits_per_sample;
+    /* Optional: (sample_count - 1)^2 indices into materials (at most 256). */
+    const uint8_t *material_indices;
+    const JPC_PhysicsMaterial *const *materials;
+    uint32_t num_materials;
+} JPC_HeightFieldSettings;
+
+JPC_API void JPC_HeightFieldSettings_SetDefault(JPC_HeightFieldSettings *settings);
+JPC_API JPC_Shape *JPC_HeightFieldShape_CreateWithSettings(const JPC_HeightFieldSettings *settings);
+
+typedef struct JPC_HeightFieldInfo {
+    /* Rounded up to a multiple of the block size. */
+    uint32_t sample_count;
+    uint32_t block_size;
+    /* The range edits are clamped to. */
+    float min_height_value;
+    float max_height_value;
+    uint32_t num_materials;
+    /* Whether the heights can be edited (a height field created entirely of holes stores no samples). */
+    bool editable;
+} JPC_HeightFieldInfo;
+
+/* Return false (with an error) for a shape that is not a height field or a region out of range. */
+JPC_API bool JPC_HeightFieldShape_GetInfo(const JPC_Shape *shape, JPC_HeightFieldInfo *out_info);
+/* Local space position of sample (x, y); out_no_collision tells whether it is a hole. */
+JPC_API bool JPC_HeightFieldShape_GetPosition(const JPC_Shape *shape, uint32_t x, uint32_t y, JPC_Vec3 *out_position, bool *out_no_collision);
+/* Reads size_x * size_y heights (holes are FLT_MAX) starting at sample (x, y), row by row. x, y and the sizes must be
+ * multiples of the block size. */
+JPC_API bool JPC_HeightFieldShape_GetHeights(const JPC_Shape *shape, uint32_t x, uint32_t y, uint32_t size_x, uint32_t size_y, float *out_heights);
+/* Reads size_x * size_y material indices of cells starting at cell (x, y); cells go up to sample_count - 2. */
+JPC_API bool JPC_HeightFieldShape_GetMaterialIndices(const JPC_Shape *shape, uint32_t x, uint32_t y, uint32_t size_x, uint32_t size_y, uint8_t *out_indices);
+/* Edits size_x * size_y heights (FLT_MAX for holes, others clamped to the height range), with the same alignment rules
+ * as GetHeights. Like the mutable compound functions, only call it on a shape nothing else uses at the same time:
+ * one held by a single owner, or inside JPC_BodyInterface_ModifyHeightField. */
+JPC_API bool JPC_HeightFieldShape_SetHeights(JPC_Shape *shape, uint32_t x, uint32_t y, uint32_t size_x, uint32_t size_y, const float *heights,
+                                             JPC_TempAllocator *temp_allocator);
+/* Sets material indices of cells; indices must refer to the height field's materials. */
+JPC_API bool JPC_HeightFieldShape_SetMaterialIndices(JPC_Shape *shape, uint32_t x, uint32_t y, uint32_t size_x, uint32_t size_y, const uint8_t *indices,
+                                                     JPC_TempAllocator *temp_allocator);
+
+typedef void (*JPC_HeightFieldEditFn)(void *user_data, JPC_Shape *height_field);
+
+/* Locks the body and calls fn with its height field to edit, then updates the body's bounds and contact cache. If
+ * anything else holds the shape the body first gets its own copy. Fails (without calling fn) for bodies that don't
+ * exist or have another shape. Bodies resting on the terrain are not woken: use JPC_BodyInterface_ActivateBodiesInAABox.
+ * fn must not use a body interface. */
+JPC_API bool JPC_BodyInterface_ModifyHeightField(JPC_BodyInterface *bi, JPC_BodyID id, JPC_HeightFieldEditFn fn, void *user_data);
+
+/* Wakes every body in the world whose bounds overlap the box (filter may be NULL; only its object layer is used). */
+JPC_API void JPC_BodyInterface_ActivateBodiesInAABox(JPC_BodyInterface *bi, const JPC_AABox *box, const JPC_QueryFilter *filter);
+
+/* ------------------------------------------------------------------------- */
+/* Shapes without a world                                                     */
+/* ------------------------------------------------------------------------- */
+
+/* Return false to stop. vertices holds 3 * count positions; materials count entries (NULL for the default material). */
+typedef bool (*JPC_TriangleCollectorFn)(void *user_data, const JPC_Vec3 *vertices, const JPC_PhysicsMaterial *const *materials, uint32_t count);
+
+/* Triangulates the shape (convex shapes approximately) placed with its center of mass at position_com, optionally only
+ * the part inside box. For rendering, navigation meshes and the like. */
+JPC_API void JPC_Shape_GetTriangles(const JPC_Shape *shape, JPC_RVec3 position_com, JPC_Quat rotation, JPC_Vec3 scale, const JPC_AABox *box,
+                                    JPC_TriangleCollectorFn collector, void *user_data);
+
+/* Queries against a single shape placed with its center of mass at position_com, without a physics system. Hits report
+ * JPC_BODY_ID_INVALID as body. Like the system's queries otherwise; settings may be NULL. Returns true on a hit, and
+ * out_hit->material is a new reference. */
+JPC_API bool JPC_Shape_CastRay(const JPC_Shape *shape, JPC_RVec3 position_com, JPC_Quat rotation, JPC_Vec3 scale, JPC_RVec3 origin, JPC_Vec3 direction,
+                               const JPC_RayCastSettings *settings, JPC_RayCastHit *out_hit);
+JPC_API bool JPC_Shape_ContainsPoint(const JPC_Shape *shape, JPC_RVec3 position_com, JPC_Quat rotation, JPC_Vec3 scale, JPC_RVec3 point);
+JPC_API void JPC_Shape_CollideShape(const JPC_Shape *shape, JPC_RVec3 position_com, JPC_Quat rotation, JPC_Vec3 scale, const JPC_Shape *query_shape,
+                                    JPC_Vec3 query_scale, const JPC_RMat44 *query_transform, const JPC_CollideShapeSettings *settings,
+                                    JPC_ShapeCollectorFn collector, void *user_data);
+JPC_API void JPC_Shape_CastShape(const JPC_Shape *shape, JPC_RVec3 position_com, JPC_Quat rotation, JPC_Vec3 scale, const JPC_Shape *query_shape,
+                                 JPC_Vec3 query_scale, const JPC_RMat44 *query_transform, JPC_Vec3 direction, const JPC_ShapeCastSettings *settings,
+                                 JPC_ShapeCollectorFn collector, void *user_data);
+
+/* ------------------------------------------------------------------------- */
 /* Snapshots                                                                  */
 /*                                                                            */
 /* Jolt restores state without validating it against the world. A snapshot   */

@@ -402,6 +402,20 @@ impl<'a> BodyInterface<'a> {
         std::ptr::NonNull::new(raw).map(|raw| unsafe { Shape::from_raw(raw) })
     }
 
+    /// Wakes every body in the world whose bounds overlap `bounds`, e.g. after editing terrain under them. Only the
+    /// filter's object layer is used.
+    pub fn activate_bodies_in_box(&self, bounds: AABox, filter: &crate::QueryFilter<'_>) {
+        let raw_filter = sys::JPC_QueryFilter {
+            use_object_layer: filter.object_layer.is_some(),
+            object_layer: filter.object_layer.map_or(0, |l| l.0),
+            ignore_body: sys::JPC_BODY_ID_INVALID,
+            body_filter: None,
+            body_filter_user_data: std::ptr::null_mut(),
+        };
+        let raw_bounds: sys::JPC_AABox = bounds.into();
+        unsafe { sys::JPC_BodyInterface_ActivateBodiesInAABox(self.raw, &raw_bounds, &raw_filter) }
+    }
+
     /// Does nothing for soft bodies.
     pub fn set_shape(&self, id: BodyId, shape: &Shape, update_mass_properties: bool, activation: Activation) {
         unsafe { sys::JPC_BodyInterface_SetShape(self.raw, id.0, shape.as_raw(), update_mass_properties, activation.to_sys()) }

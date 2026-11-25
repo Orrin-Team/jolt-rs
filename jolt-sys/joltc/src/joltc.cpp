@@ -7,6 +7,7 @@
 #include <string>
 
 #include <Jolt/Physics/Collision/AABoxCast.h>
+#include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
 #include <Jolt/Physics/Collision/BroadPhase/BroadPhaseQuery.h>
 #include <Jolt/Physics/Constraints/GearConstraint.h>
 #include <Jolt/Physics/Constraints/PathConstraint.h>
@@ -766,6 +767,14 @@ void JPC_BodyInterface_ActivateBody(JPC_BodyInterface *bi, JPC_BodyID id)
 	if (IsAddedAndMovable(bi, id))
 		ToJph(bi)->ActivateBody(ToJph(id));
 }
+void JPC_BodyInterface_ActivateBodiesInAABox(JPC_BodyInterface *bi, const JPC_AABox *box, const JPC_QueryFilter *filter)
+{
+	QueryFilters filters(*bi->mOwner, filter);
+	// Only finds bodies in the broad phase, so nothing outside the world gets activated
+	std::shared_lock lock(bi->mOwner->mBodyStateMutex);
+	ToJph(bi)->ActivateBodiesInAABox(AABox(ToJph(box->min), ToJph(box->max)), filters.mBroadPhase, filters.mObjectLayer);
+}
+
 void JPC_BodyInterface_DeactivateBody(JPC_BodyInterface *bi, JPC_BodyID id) { ToJph(bi)->DeactivateBody(ToJph(id)); }
 bool JPC_BodyInterface_IsActive(const JPC_BodyInterface *bi, JPC_BodyID id) { return ToJph(bi)->IsActive(ToJph(id)); }
 void JPC_BodyInterface_ResetSleepTimer(JPC_BodyInterface *bi, JPC_BodyID id) { if (IsMovable(bi, id)) ToJph(bi)->ResetSleepTimer(ToJph(id)); }
@@ -1977,6 +1986,99 @@ void JPC_PhysicsSystem_CastShapeWithSettings(const JPC_PhysicsSystem *system, co
 	QueryFilters filters(*system, filter);
 	CallbackCastShapeCollector collector(collector_fn, user_data);
 	system->mSystem.GetNarrowPhaseQuery().CastShape(cast, settings, RVec3::sZero(), collector, filters.mBroadPhase, filters.mObjectLayer, filters.mBody);
+}
+
+// ---------------------------------------------------------------------------
+// Queries against a single shape
+// ---------------------------------------------------------------------------
+
+static TransformedShape MakeTransformedShape(const JPC_Shape *inShape, JPC_RVec3 inPositionCOM, JPC_Quat inRotation, JPC_Vec3 inScale)
+{
+	Quat q = ToJph(inRotation);
+	q = q.LengthSq() > 1.0e-12f ? q.Normalized() : Quat::sIdentity();
+	TransformedShape ts(ToJph(inPositionCOM), q, ToJph(inShape), BodyID());
+	ts.SetShapeScale(ToJph(inShape)->MakeScaleValid(ToJph(inScale)));
+	return ts;
+}
+
+static CollideShapeSettings ToJph(const JPC_CollideShapeSettings *in)
+{
+	CollideShapeSettings settings;
+	if (in != nullptr)
+	{
+		settings.mMaxSeparationDistance = in->max_separation_distance;
+		settings.mBackFaceMode = (EBackFaceMode)in->back_face_mode;
+		settings.mActiveEdgeMode = (EActiveEdgeMode)in->active_edge_mode;
+		settings.mActiveEdgeMovementDirection = ToJph(in->active_edge_movement_direction);
+		settings.mCollisionTolerance = in->collision_tolerance;
+		settings.mPenetrationTolerance = in->penetration_tolerance;
+		settings.mCollectFacesMode = in->collect_faces ? ECollectFacesMode::CollectFaces : ECollectFacesMode::NoFaces;
+	}
+	return settings;
+}
+
+static ShapeCastSettings ToJph(const JPC_ShapeCastSettings *in)
+{
+	ShapeCastSettings settings;
+	if (in != nullptr)
+	{
+		settings.mBackFaceModeTriangles = (EBackFaceMode)in->back_face_mode_triangles;
+		settings.mBackFaceModeConvex = (EBackFaceMode)in->back_face_mode_convex;
+		settings.mUseShrunkenShapeAndConvexRadius = in->use_shrunken_shape_and_convex_radius;
+		settings.mReturnDeepestPoint = in->return_deepest_point;
+		settings.mActiveEdgeMode = (EActiveEdgeMode)in->active_edge_mode;
+		settings.mActiveEdgeMovementDirection = ToJph(in->active_edge_movement_direction);
+		settings.mCollisionTolerance = in->collision_tolerance;
+		settings.mPenetrationTolerance = in->penetration_tolerance;
+		settings.mCollectFacesMode = in->collect_faces ? ECollectFacesMode::CollectFaces : ECollectFacesMode::NoFaces;
+	}
+	return settings;
+}
+
+bool JPC_Shape_CastRay(const JPC_Shape *shape, JPC_RVec3 position_com, JPC_Quat rotation, JPC_Vec3 scale, JPC_RVec3 origin, JPC_Vec3 direction,
+					   const JPC_RayCastSettings *settings, JPC_RayCastHit *out_hit)
+{
+	TransformedShape ts = MakeTransformedShape(shape, position_com, rotation, scale);
+	RRayCast ray { ToJph(origin), ToJph(direction) };
+	ClosestRayCollector collector(ray);
+	collector.SetContext(&ts);
+	ts.CastRay(ray, ToJph(settings), collector);
+	if (collector.mHasHit && out_hit != nullptr)
+	{
+		*out_hit = collector.mHit;
+		if (out_hit->material != nullptr)
+			ToJph(out_hit->material)->AddRef();
+	}
+	return collector.mHasHit;
+}
+
+bool JPC_Shape_ContainsPoint(const JPC_Shape *shape, JPC_RVec3 position_com, JPC_Quat rotation, JPC_Vec3 scale, JPC_RVec3 point)
+{
+	TransformedShape ts = MakeTransformedShape(shape, position_com, rotation, scale);
+	AnyHitCollisionCollector<CollidePointCollector> collector;
+	ts.CollidePoint(ToJph(point), collector);
+	return collector.HadHit();
+}
+
+void JPC_Shape_CollideShape(const JPC_Shape *shape, JPC_RVec3 position_com, JPC_Quat rotation, JPC_Vec3 scale, const JPC_Shape *query_shape,
+							JPC_Vec3 query_scale, const JPC_RMat44 *query_transform, const JPC_CollideShapeSettings *settings,
+							JPC_ShapeCollectorFn collector_fn, void *user_data)
+{
+	TransformedShape ts = MakeTransformedShape(shape, position_com, rotation, scale);
+	CallbackCollideShapeCollector collector(collector_fn, user_data);
+	collector.SetContext(&ts);
+	ts.CollideShape(ToJph(query_shape), ToJph(query_shape)->MakeScaleValid(ToJph(query_scale)), ToJph(*query_transform), ToJph(settings), RVec3::sZero(), collector);
+}
+
+void JPC_Shape_CastShape(const JPC_Shape *shape, JPC_RVec3 position_com, JPC_Quat rotation, JPC_Vec3 scale, const JPC_Shape *query_shape,
+						 JPC_Vec3 query_scale, const JPC_RMat44 *query_transform, JPC_Vec3 direction, const JPC_ShapeCastSettings *settings,
+						 JPC_ShapeCollectorFn collector_fn, void *user_data)
+{
+	TransformedShape ts = MakeTransformedShape(shape, position_com, rotation, scale);
+	RShapeCast cast(ToJph(query_shape), ToJph(query_shape)->MakeScaleValid(ToJph(query_scale)), ToJph(*query_transform), ToJph(direction));
+	CallbackCastShapeCollector collector(collector_fn, user_data);
+	collector.SetContext(&ts);
+	ts.CastShape(cast, ToJph(settings), RVec3::sZero(), collector);
 }
 
 // ---------------------------------------------------------------------------

@@ -39,6 +39,7 @@ mod constraint;
 pub mod debug;
 mod error;
 mod group;
+pub mod height_field;
 mod layers;
 mod listener;
 mod material;
@@ -76,6 +77,7 @@ pub use debug::{
     BodyDrawSettings, CollisionEstimation, Color, DebugDraw, DebugRenderer, ShapeColor, SoftBodyConstraintColor, estimate_collision_response,
 };
 pub use error::{Error, Result};
+pub use height_field::{HeightFieldEditor, HeightFieldInfo, HeightFieldSettings};
 pub use group::{CollisionGroup, GroupFilter, GroupFilterTable};
 pub use layers::{BroadPhaseLayer, LayerConfig, ObjectLayer};
 pub use listener::{
@@ -94,7 +96,7 @@ pub use query::{
     ShapeHit,
 };
 pub use ragdoll::{JointState, Ragdoll, RagdollConstraint, RagdollJoint, RagdollOptions, RagdollPart, RagdollSettings, Skeleton, SkeletonBuilder};
-pub use shape::{CompoundSubShape, DEFAULT_CONVEX_RADIUS, MassProperties, MutableCompound, Shape, ShapeSubType, ShapeType};
+pub use shape::{CompoundSubShape, DEFAULT_CONVEX_RADIUS, MassProperties, MutableCompound, Shape, ShapePlacement, ShapeSubType, ShapeTriangle, ShapeType};
 pub use snapshot::{PhysicsSnapshot, StateParts};
 pub use soft_body::{
     BendType, LraType, SkinWeight, SoftBodyCounts, SoftBodyCreationSettings, SoftBodyDesc, SoftBodyDihedralBend, SoftBodyEdge, SoftBodyFace,
