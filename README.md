@@ -23,7 +23,7 @@ The names `jolt` and `jolt-sys` were taken on crates.io, so the packages are pub
 
 ```toml
 [dependencies]
-jolt = { package = "orrin-jolt", version = "0.1" }
+jolt = { package = "orrin-jolt", version = "0.2" }
 ```
 
 ```rust
@@ -46,8 +46,8 @@ system.update(1.0 / 60.0, 1, &mut temp, &jobs)?;
 
 | Area | Status |
 |---|---|
-| Shapes | ✅ sphere, box, capsule, tapered capsule, cylinder, tapered cylinder, triangle, convex hull, mesh, height field, plane, empty, static and mutable compound (editable in place, also on live bodies), rotated/translated, scaled, offset COM, compound child lookup from hits, binary serialization |
-| Bodies | ✅ creation settings, add/remove/destroy (single and batch), transforms, velocities, forces, impulses, buoyancy, kinematics, motion type/quality, material properties, collision groups, bounds, mass, user data |
+| Shapes | ✅ sphere, box, capsule, tapered capsule, cylinder, tapered cylinder, triangle, convex hull, mesh, height field (editable heights and materials, also on live bodies), plane, empty, static and mutable compound (editable in place, also on live bodies), rotated/translated, scaled, offset COM, compound child lookup from hits, triangulation, queries against a single shape, binary serialization |
+| Bodies | ✅ creation settings, add/remove/destroy (single and batch), transforms, velocities, forces, impulses, buoyancy, kinematics, motion type/quality, material properties, collision groups, bounds, mass, user data, waking bodies in a box |
 | Queries | ✅ ray (closest/all), point, collide shape, cast shape, broad phase (box, sphere, point, oriented box, ray, box cast), back face / active edge / tolerance settings, collected faces, layer and body filters |
 | Constraints | ✅ fixed, point, distance, hinge, slider, cone, swing-twist, six-DOF, gear, rack-and-pinion, pulley, path (Hermite), motors and limits |
 | Vehicles | ✅ wheeled vehicles (engine, transmission, differentials, anti-roll bars, friction curves, ray/sphere/cylinder testers), motorcycles (lean control), tracked vehicles |
@@ -78,6 +78,7 @@ system.update(1.0 / 60.0, 1, &mut temp, &jobs)?;
 ```sh
 cargo test                            # integration, feature and regression tests
 cargo test -p orrin-jolt --features asserts # with Jolt's asserts compiled in
+cargo test -p orrin-jolt --features debug-renderer # with Jolt's debug renderer compiled in
 ./scripts/test-asan.sh                # against an AddressSanitizer build (macOS)
 JOLT_SYS_UPDATE_BINDINGS=1 cargo build -p orrin-jolt-sys --features bindgen  # after editing joltc.h
 ```

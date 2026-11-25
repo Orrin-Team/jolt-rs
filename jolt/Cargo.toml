@@ -15,7 +15,7 @@ readme = "../README.md"
 name = "jolt"
 
 [dependencies]
-jolt-sys = { package = "orrin-jolt-sys", path = "../jolt-sys", version = "0.1.0" }
+jolt-sys = { package = "orrin-jolt-sys", path = "../jolt-sys", version = "0.2.0" }
 glam = { version = "0.34", optional = true }
 
 [features]
