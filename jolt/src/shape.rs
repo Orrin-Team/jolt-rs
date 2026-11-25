@@ -520,7 +520,7 @@ impl Shape {
             let out = unsafe { &mut *user_data.cast::<Vec<ShapeTriangle>>() };
             let (vertices, materials) =
                 unsafe { (std::slice::from_raw_parts(vertices, 3 * count as usize), std::slice::from_raw_parts(materials, count as usize)) };
-            for (v, &m) in vertices.chunks_exact(3).zip(materials) {
+            for (v, &m) in vertices.as_chunks::<3>().0.iter().zip(materials) {
                 out.push(ShapeTriangle { vertices: [v[0].into(), v[1].into(), v[2].into()], material: PhysicsMaterial::from_borrowed(m) });
             }
             true
